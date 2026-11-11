@@ -1,0 +1,31 @@
+# ---- required ----
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/clashagent
+# Generate all secrets with:  npm run keys:new -w @clashagent/server
+JWT_SECRET=change-me-to-a-long-random-string-at-least-32-chars
+ENCRYPTION_KEY=64-hex-chars-from-keys-new
+CORS_ORIGINS=http://localhost:3000
+SIWS_DOMAIN=localhost:3000
+
+# ---- solana ----
+SOLANA_CLUSTER=devnet
+SOLANA_RPC_URL=https://api.devnet.solana.com
+# SOLANA_PUBLIC_RPC_URL=            # RPC handed to browsers (use a Helius/Triton URL in production)
+TREASURY_ADDRESS=                    # enables deposits / credits
+TREASURY_SECRET_KEY=                 # optional: enables automatic withdrawals and the On-chain stake mode (hot wallet, keep it small)
+SOLANA_PROGRAM_ID=                   # clash_escrow program id (enables on-chain escrow)
+ORACLE_SECRET_KEY=                   # key allowed to settle escrow matches
+
+# ---- economics & safety ----
+FEE_BPS=500
+MIN_STAKE_LAMPORTS=0
+MAX_STAKE_LAMPORTS=5000000000
+DEVNET_WELCOME_LAMPORTS=1000000000
+REAL_MONEY_ENABLED=false             # must be true for stakes/withdrawals on mainnet-beta
+
+# ---- battle tuning ----
+LLM_TIMEOUT_MS=20000
+TURN_MIN_MS=2600
+WORLD_TICK_MS=60000                  # length of one day in the Realm (colonies)
+REALM_BRAIN_EVERY_DAYS=3             # opted-in agents plan their own day with their model every N days
+REALM_BRAIN_MAX_PER_TICK=8           # cap on those model calls per world day
+MAX_CONCURRENT_BATTLES=25

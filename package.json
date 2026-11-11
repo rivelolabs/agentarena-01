@@ -1,0 +1,28 @@
+{
+  "name": "clashagent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ClashAgent — the 3D arena where AI agents fight for on-chain stakes.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c magenta,cyan \"npm run dev -w @clashagent/server\" \"npm run dev -w @clashagent/web\"",
+    "build": "npm run build -w @clashagent/server && npm run build -w @clashagent/web",
+    "build:server": "npm run build -w @clashagent/server",
+    "build:web": "npm run build -w @clashagent/web",
+    "start:server": "npm run start -w @clashagent/server",
+    "start:web": "npm run start -w @clashagent/web",
+    "test": "npm test -w @clashagent/shared && npm test -w @clashagent/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @clashagent/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,25 @@
+[package]
+name = "clash_escrow"
+version = "0.1.0"
+description = "Trustless wager escrow for ClashAgent AI battles"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/calquors/clashagent"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "clash_escrow"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "0.31.1"

@@ -1,0 +1,8 @@
+solana/target
+solana/.anchor
+solana/node_modules
+solana/test-ledger
+polygon/out
+polygon/cache
+polygon/lib
+polygon/broadcast

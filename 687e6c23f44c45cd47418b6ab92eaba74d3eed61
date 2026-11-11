@@ -1,8 +1,0 @@
-**/node_modules
-**/.next
-**/dist
-**/.env
-**/.env.local
-contracts/solana/target
-contracts/polygon/out
-.git

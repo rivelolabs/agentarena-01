@@ -1,0 +1,514 @@
+{
+ "fighters": {
+  "pyra": {
+   "hopeyourefireproof": [
+    "/audio/voice/pyra/pyra-01a.mp3",
+    "/audio/voice/pyra/pyra-01b.mp3"
+   ],
+   "letsturnuptheheat": [
+    "/audio/voice/pyra/pyra-02a.mp3",
+    "/audio/voice/pyra/pyra-02b.mp3"
+   ],
+   "feeltheheat": [
+    "/audio/voice/pyra/pyra-03a.mp3",
+    "/audio/voice/pyra/pyra-03b.mp3"
+   ],
+   "burn": [
+    "/audio/voice/pyra/pyra-04a.mp3",
+    "/audio/voice/pyra/pyra-04b.mp3"
+   ],
+   "youresmokingliterally": [
+    "/audio/voice/pyra/pyra-05a.mp3",
+    "/audio/voice/pyra/pyra-05b.mp3"
+   ],
+   "thatjustfanstheflames": [
+    "/audio/voice/pyra/pyra-06a.mp3",
+    "/audio/voice/pyra/pyra-06b.mp3"
+   ],
+   "owokaynowitspersonal": [
+    "/audio/voice/pyra/pyra-07a.mp3",
+    "/audio/voice/pyra/pyra-07b.mp3"
+   ],
+   "ashesallofit": [
+    "/audio/voice/pyra/pyra-08a.mp3",
+    "/audio/voice/pyra/pyra-08b.mp3"
+   ],
+   "lastembergoodbye": [
+    "/audio/voice/pyra/pyra-09a.mp3",
+    "/audio/voice/pyra/pyra-09b.mp3"
+   ],
+   "bigtalkforkindling": [
+    "/audio/voice/pyra/pyra-10a.mp3",
+    "/audio/voice/pyra/pyra-10b.mp3"
+   ],
+   "saythatagainicanthearyouoverthefire": [
+    "/audio/voice/pyra/pyra-11a.mp3",
+    "/audio/voice/pyra/pyra-11b.mp3"
+   ],
+   "youreallsmoke": [
+    "/audio/voice/pyra/pyra-12a.mp3",
+    "/audio/voice/pyra/pyra-12b.mp3"
+   ],
+   "infernosreadyanylastwords": [
+    "/audio/voice/pyra/pyra-13a.mp3",
+    "/audio/voice/pyra/pyra-13b.mp3"
+   ]
+  },
+  "volt": {
+   "trytokeepup": [
+    "/audio/voice/volt/volt-01a.mp3",
+    "/audio/voice/volt/volt-01b.mp3"
+   ],
+   "thisendsbeforeyoublink": [
+    "/audio/voice/volt/volt-02a.mp3",
+    "/audio/voice/volt/volt-02b.mp3"
+   ],
+   "tooslow": [
+    "/audio/voice/volt/volt-03a.mp3",
+    "/audio/voice/volt/volt-03b.mp3"
+   ],
+   "ialreadyhityoutwice": [
+    "/audio/voice/volt/volt-04a.mp3",
+    "/audio/voice/volt/volt-04b.mp3"
+   ],
+   "youfeltthatone": [
+    "/audio/voice/volt/volt-05a.mp3",
+    "/audio/voice/volt/volt-05b.mp3"
+   ],
+   "luckyshotyouwontgetanother": [
+    "/audio/voice/volt/volt-06a.mp3",
+    "/audio/voice/volt/volt-06b.mp3"
+   ],
+   "finenowimawake": [
+    "/audio/voice/volt/volt-07a.mp3",
+    "/audio/voice/volt/volt-07b.mp3"
+   ],
+   "lightsout": [
+    "/audio/voice/volt/volt-08a.mp3",
+    "/audio/voice/volt/volt-08b.mp3"
+   ],
+   "onemoresparkandyouredone": [
+    "/audio/voice/volt/volt-09a.mp3",
+    "/audio/voice/volt/volt-09b.mp3"
+   ],
+   "talkfasterimbored": [
+    "/audio/voice/volt/volt-10a.mp3",
+    "/audio/voice/volt/volt-10b.mp3"
+   ],
+   "cutesayitagainwhenyoucantouchme": [
+    "/audio/voice/volt/volt-11a.mp3",
+    "/audio/voice/volt/volt-11b.mp3"
+   ],
+   "youtalkslowerthanyoumove": [
+    "/audio/voice/volt/volt-12a.mp3",
+    "/audio/voice/volt/volt-12b.mp3"
+   ],
+   "stormschargedrun": [
+    "/audio/voice/volt/volt-13a.mp3",
+    "/audio/voice/volt/volt-13b.mp3"
+   ]
+  },
+  "titan": {
+   "idonotstop": [
+    "/audio/voice/titan/titan-01a.mp3",
+    "/audio/voice/titan/titan-01b.mp3"
+   ],
+   "standstillthiswillbequick": [
+    "/audio/voice/titan/titan-02a.mp3",
+    "/audio/voice/titan/titan-02b.mp3"
+   ],
+   "yourguardispaper": [
+    "/audio/voice/titan/titan-03a.mp3",
+    "/audio/voice/titan/titan-03b.mp3"
+   ],
+   "brace": [
+    "/audio/voice/titan/titan-04a.mp3",
+    "/audio/voice/titan/titan-04b.mp3"
+   ],
+   "didthegroundshakeforyoutoo": [
+    "/audio/voice/titan/titan-05a.mp3",
+    "/audio/voice/titan/titan-05b.mp3"
+   ],
+   "yourhitstickle": [
+    "/audio/voice/titan/titan-06a.mp3",
+    "/audio/voice/titan/titan-06b.mp3"
+   ],
+   "ihavebeenhitbymountains": [
+    "/audio/voice/titan/titan-07a.mp3",
+    "/audio/voice/titan/titan-07b.mp3"
+   ],
+   "staydown": [
+    "/audio/voice/titan/titan-08a.mp3",
+    "/audio/voice/titan/titan-08b.mp3"
+   ],
+   "themountainfallsonyounow": [
+    "/audio/voice/titan/titan-09a.mp3",
+    "/audio/voice/titan/titan-09b.mp3"
+   ],
+   "wordsdonotmovestone": [
+    "/audio/voice/titan/titan-10a.mp3",
+    "/audio/voice/titan/titan-10b.mp3"
+   ],
+   "sayittomyfist": [
+    "/audio/voice/titan/titan-11a.mp3",
+    "/audio/voice/titan/titan-11b.mp3"
+   ],
+   "loudsmallbutloud": [
+    "/audio/voice/titan/titan-12a.mp3",
+    "/audio/voice/titan/titan-12b.mp3"
+   ],
+   "theearthisabouttoopen": [
+    "/audio/voice/titan/titan-13a.mp3",
+    "/audio/voice/titan/titan-13b.mp3"
+   ]
+  },
+  "nyx": {
+   "youwontseeitcoming": [
+    "/audio/voice/nyx/nyx-01a.mp3",
+    "/audio/voice/nyx/nyx-01b.mp3"
+   ],
+   "shadowsfirstthenyou": [
+    "/audio/voice/nyx/nyx-02a.mp3",
+    "/audio/voice/nyx/nyx-02b.mp3"
+   ],
+   "behindyou": [
+    "/audio/voice/nyx/nyx-03a.mp3",
+    "/audio/voice/nyx/nyx-03b.mp3"
+   ],
+   "onecutisenough": [
+    "/audio/voice/nyx/nyx-04a.mp3",
+    "/audio/voice/nyx/nyx-04b.mp3"
+   ],
+   "youarefightinganecho": [
+    "/audio/voice/nyx/nyx-05a.mp3",
+    "/audio/voice/nyx/nyx-05b.mp3"
+   ],
+   "youhittheshadownotme": [
+    "/audio/voice/nyx/nyx-06a.mp3",
+    "/audio/voice/nyx/nyx-06b.mp3"
+   ],
+   "goodbleedmeitwontmatter": [
+    "/audio/voice/nyx/nyx-07a.mp3",
+    "/audio/voice/nyx/nyx-07b.mp3"
+   ],
+   "closeyoureyeseasierthatway": [
+    "/audio/voice/nyx/nyx-08a.mp3",
+    "/audio/voice/nyx/nyx-08b.mp3"
+   ],
+   "thedarkkeepswhatittakes": [
+    "/audio/voice/nyx/nyx-09a.mp3",
+    "/audio/voice/nyx/nyx-09b.mp3"
+   ],
+   "keeptalkingimfollowingthesound": [
+    "/audio/voice/nyx/nyx-10a.mp3",
+    "/audio/voice/nyx/nyx-10b.mp3"
+   ],
+   "whisperitimrighthere": [
+    "/audio/voice/nyx/nyx-11a.mp3",
+    "/audio/voice/nyx/nyx-11b.mp3"
+   ],
+   "bravewordsfromsomeoneicantmiss": [
+    "/audio/voice/nyx/nyx-12a.mp3",
+    "/audio/voice/nyx/nyx-12b.mp3"
+   ],
+   "thenightisfullnow": [
+    "/audio/voice/nyx/nyx-13a.mp3",
+    "/audio/voice/nyx/nyx-13b.mp3"
+   ]
+  },
+  "aegis": {
+   "notonestepfurther": [
+    "/audio/voice/aegis/aegis-01a.mp3"
+   ],
+   "breakyourselfonme": [
+    "/audio/voice/aegis/aegis-02a.mp3"
+   ],
+   "strikethewall": [
+    "/audio/voice/aegis/aegis-03a.mp3"
+   ],
+   "iwilloutlastyou": [
+    "/audio/voice/aegis/aegis-04a.mp3"
+   ],
+   "everyblowyouwasteismine": [
+    "/audio/voice/aegis/aegis-05a.mp3"
+   ],
+   "thewallholds": [
+    "/audio/voice/aegis/aegis-06a.mp3"
+   ],
+   "acrackisnotabreach": [
+    "/audio/voice/aegis/aegis-07a.mp3"
+   ],
+   "youarespentyield": [
+    "/audio/voice/aegis/aegis-08a.mp3"
+   ],
+   "thewallfallsonyou": [
+    "/audio/voice/aegis/aegis-09a.mp3"
+   ],
+   "noisethegatestaysshut": [
+    "/audio/voice/aegis/aegis-10a.mp3"
+   ],
+   "ihaveheardbraverfromweaker": [
+    "/audio/voice/aegis/aegis-11a.mp3"
+   ],
+   "speakwithyoursword": [
+    "/audio/voice/aegis/aegis-12a.mp3"
+   ],
+   "bastionstandsready": [
+    "/audio/voice/aegis/aegis-13a.mp3"
+   ]
+  },
+  "glitch": {
+   "loadingyourdefeat99": [
+    "/audio/voice/glitch/glitch-01a.mp3",
+    "/audio/voice/glitch/glitch-01b.mp3"
+   ],
+   "helloworldgoodbyeyou": [
+    "/audio/voice/glitch/glitch-02a.mp3",
+    "/audio/voice/glitch/glitch-02b.mp3"
+   ],
+   "segfaultincoming": [
+    "/audio/voice/glitch/glitch-03a.mp3",
+    "/audio/voice/glitch/glitch-03b.mp3"
+   ],
+   "yourguardthrewanexception": [
+    "/audio/voice/glitch/glitch-04a.mp3",
+    "/audio/voice/glitch/glitch-04b.mp3"
+   ],
+   "patchnotesyougotnerfed": [
+    "/audio/voice/glitch/glitch-05a.mp3",
+    "/audio/voice/glitch/glitch-05b.mp3"
+   ],
+   "retryingretrying": [
+    "/audio/voice/glitch/glitch-06a.mp3",
+    "/audio/voice/glitch/glitch-06b.mp3"
+   ],
+   "thatwasaroundingerror": [
+    "/audio/voice/glitch/glitch-07a.mp3",
+    "/audio/voice/glitch/glitch-07b.mp3"
+   ],
+   "kill9you": [
+    "/audio/voice/glitch/glitch-08a.mp3",
+    "/audio/voice/glitch/glitch-08b.mp3"
+   ],
+   "endoffile": [
+    "/audio/voice/glitch/glitch-09a.mp3",
+    "/audio/voice/glitch/glitch-09b.mp3"
+   ],
+   "undefinedisnotacomeback": [
+    "/audio/voice/glitch/glitch-10a.mp3",
+    "/audio/voice/glitch/glitch-10b.mp3"
+   ],
+   "error404threatnotfound": [
+    "/audio/voice/glitch/glitch-11a.mp3",
+    "/audio/voice/glitch/glitch-11b.mp3"
+   ],
+   "iparsedthatitwasnothing": [
+    "/audio/voice/glitch/glitch-12a.mp3",
+    "/audio/voice/glitch/glitch-12b.mp3"
+   ],
+   "overflowin32": [
+    "/audio/voice/glitch/glitch-13a.mp3",
+    "/audio/voice/glitch/glitch-13b.mp3"
+   ]
+  },
+  "kaiju": {
+   "rrraaagh": [
+    "/audio/voice/kaiju/kaiju-01a.mp3",
+    "/audio/voice/kaiju/kaiju-01b.mp3"
+   ],
+   "smallcrunchymine": [
+    "/audio/voice/kaiju/kaiju-02a.mp3",
+    "/audio/voice/kaiju/kaiju-02b.mp3"
+   ],
+   "more": [
+    "/audio/voice/kaiju/kaiju-03a.mp3",
+    "/audio/voice/kaiju/kaiju-03b.mp3"
+   ],
+   "ilikeitwhenyoufightback": [
+    "/audio/voice/kaiju/kaiju-04a.mp3",
+    "/audio/voice/kaiju/kaiju-04b.mp3"
+   ],
+   "crunch": [
+    "/audio/voice/kaiju/kaiju-05a.mp3",
+    "/audio/voice/kaiju/kaiju-05b.mp3"
+   ],
+   "thatonlymakesmehungry": [
+    "/audio/voice/kaiju/kaiju-06a.mp3",
+    "/audio/voice/kaiju/kaiju-06b.mp3"
+   ],
+   "grrragain": [
+    "/audio/voice/kaiju/kaiju-07a.mp3",
+    "/audio/voice/kaiju/kaiju-07b.mp3"
+   ],
+   "dinnertime": [
+    "/audio/voice/kaiju/kaiju-08a.mp3",
+    "/audio/voice/kaiju/kaiju-08b.mp3"
+   ],
+   "nomorerunninglittleone": [
+    "/audio/voice/kaiju/kaiju-09a.mp3",
+    "/audio/voice/kaiju/kaiju-09b.mp3"
+   ],
+   "squeakingfoodsqueaks": [
+    "/audio/voice/kaiju/kaiju-10a.mp3",
+    "/audio/voice/kaiju/kaiju-10b.mp3"
+   ],
+   "talklesstastebetter": [
+    "/audio/voice/kaiju/kaiju-11a.mp3",
+    "/audio/voice/kaiju/kaiju-11b.mp3"
+   ],
+   "rrrrwordsareforthesmall": [
+    "/audio/voice/kaiju/kaiju-12a.mp3",
+    "/audio/voice/kaiju/kaiju-12b.mp3"
+   ],
+   "thebeastisawake": [
+    "/audio/voice/kaiju/kaiju-13a.mp3",
+    "/audio/voice/kaiju/kaiju-13b.mp3"
+   ]
+  },
+  "oracle": {
+   "isawthisalreadyyoulose": [
+    "/audio/voice/oracle/oracle-01a.mp3",
+    "/audio/voice/oracle/oracle-01b.mp3"
+   ],
+   "shallitellyouhowitends": [
+    "/audio/voice/oracle/oracle-02a.mp3",
+    "/audio/voice/oracle/oracle-02b.mp3"
+   ],
+   "predictable": [
+    "/audio/voice/oracle/oracle-03a.mp3",
+    "/audio/voice/oracle/oracle-03b.mp3"
+   ],
+   "exactlyasforeseen": [
+    "/audio/voice/oracle/oracle-04a.mp3",
+    "/audio/voice/oracle/oracle-04b.mp3"
+   ],
+   "thetidewasalwaysgoingtodothat": [
+    "/audio/voice/oracle/oracle-05a.mp3",
+    "/audio/voice/oracle/oracle-05b.mp3"
+   ],
+   "isawthatonetooitchangesnothing": [
+    "/audio/voice/oracle/oracle-06a.mp3",
+    "/audio/voice/oracle/oracle-06b.mp3"
+   ],
+   "asmallripple": [
+    "/audio/voice/oracle/oracle-07a.mp3",
+    "/audio/voice/oracle/oracle-07b.mp3"
+   ],
+   "thisisthelastpage": [
+    "/audio/voice/oracle/oracle-08a.mp3",
+    "/audio/voice/oracle/oracle-08b.mp3"
+   ],
+   "thewaterclosesoveryounow": [
+    "/audio/voice/oracle/oracle-09a.mp3",
+    "/audio/voice/oracle/oracle-09b.mp3"
+   ],
+   "iknewyouwouldsaythat": [
+    "/audio/voice/oracle/oracle-10a.mp3",
+    "/audio/voice/oracle/oracle-10b.mp3"
+   ],
+   "yousaidthesamethingineveryfuture": [
+    "/audio/voice/oracle/oracle-11a.mp3",
+    "/audio/voice/oracle/oracle-11b.mp3"
+   ],
+   "wordsthenafallivereadit": [
+    "/audio/voice/oracle/oracle-12a.mp3",
+    "/audio/voice/oracle/oracle-12b.mp3"
+   ],
+   "thefloodarrivesontime": [
+    "/audio/voice/oracle/oracle-13a.mp3",
+    "/audio/voice/oracle/oracle-13b.mp3"
+   ]
+  }
+ },
+ "announcer": {
+  "roundone": [
+   "/audio/voice/announcer/announcer-01a.mp3",
+   "/audio/voice/announcer/announcer-01b.mp3"
+  ],
+  "fight": [
+   "/audio/voice/announcer/announcer-02a.mp3",
+   "/audio/voice/announcer/announcer-02b.mp3"
+  ],
+  "super": [
+   "/audio/voice/announcer/announcer-03a.mp3",
+   "/audio/voice/announcer/announcer-03b.mp3"
+  ],
+  "ko": [
+   "/audio/voice/announcer/announcer-04a.mp3",
+   "/audio/voice/announcer/announcer-04b.mp3"
+  ],
+  "superko": [
+   "/audio/voice/announcer/announcer-05a.mp3",
+   "/audio/voice/announcer/announcer-05b.mp3"
+  ],
+  "overkill": [
+   "/audio/voice/announcer/announcer-06a.mp3",
+   "/audio/voice/announcer/announcer-06b.mp3"
+  ],
+  "perfect": [
+   "/audio/voice/announcer/announcer-07a.mp3",
+   "/audio/voice/announcer/announcer-07b.mp3"
+  ],
+  "time": [
+   "/audio/voice/announcer/announcer-08a.mp3",
+   "/audio/voice/announcer/announcer-08b.mp3"
+  ],
+  "draw": [
+   "/audio/voice/announcer/announcer-09a.mp3",
+   "/audio/voice/announcer/announcer-09b.mp3"
+  ],
+  "voltwins": [
+   "/audio/voice/announcer/announcer-10a.mp3",
+   "/audio/voice/announcer/announcer-10b.mp3"
+  ],
+  "titanwins": [
+   "/audio/voice/announcer/announcer-11a.mp3",
+   "/audio/voice/announcer/announcer-11b.mp3"
+  ],
+  "nyxwins": [
+   "/audio/voice/announcer/announcer-12a.mp3",
+   "/audio/voice/announcer/announcer-12b.mp3"
+  ],
+  "pyrawins": [
+   "/audio/voice/announcer/announcer-13a.mp3",
+   "/audio/voice/announcer/announcer-13b.mp3"
+  ],
+  "aegiswins": [
+   "/audio/voice/announcer/announcer-14a.mp3",
+   "/audio/voice/announcer/announcer-14b.mp3"
+  ],
+  "glitchwins": [
+   "/audio/voice/announcer/announcer-15a.mp3",
+   "/audio/voice/announcer/announcer-15b.mp3"
+  ],
+  "kaijuninewins": [
+   "/audio/voice/announcer/announcer-16a.mp3",
+   "/audio/voice/announcer/announcer-16b.mp3"
+  ],
+  "oraclewins": [
+   "/audio/voice/announcer/announcer-17a.mp3",
+   "/audio/voice/announcer/announcer-17b.mp3"
+  ],
+  "4hitcombo": [
+   "/audio/voice/announcer/announcer-18a.mp3",
+   "/audio/voice/announcer/announcer-18b.mp3"
+  ],
+  "5hitcombo": [
+   "/audio/voice/announcer/announcer-19a.mp3",
+   "/audio/voice/announcer/announcer-19b.mp3"
+  ],
+  "6hitcombo": [
+   "/audio/voice/announcer/announcer-20a.mp3",
+   "/audio/voice/announcer/announcer-20b.mp3"
+  ],
+  "7hitcombo": [
+   "/audio/voice/announcer/announcer-21a.mp3",
+   "/audio/voice/announcer/announcer-21b.mp3"
+  ],
+  "8hitcombo": [
+   "/audio/voice/announcer/announcer-22a.mp3",
+   "/audio/voice/announcer/announcer-22b.mp3"
+  ]
+ },
+ "sfx": {}
+}

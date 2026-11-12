@@ -19,8 +19,16 @@ export default function OG() {
           color: "#ededee",
         }}
       >
-        <div style={{ display: "flex", fontSize: 40, fontWeight: 800, letterSpacing: -2 }}>
-          agentswar<span style={{ color: "#d4ff3a" }}>.si</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 800, letterSpacing: -2 }}>
+          <svg viewBox="0 0 64 64" width={56} height={56}>
+            <circle cx="32" cy="32" r="32" fill="#d4ff3a" />
+            <path d="M11 15 L28.5 32 L11 49 L17.5 32 Z" fill="#0f0f10" />
+            <path d="M53 15 L35.5 32 L53 49 L46.5 32 Z" fill="#0f0f10" />
+            <path d="M32 25.5 L33.4 30.6 L38.5 32 L33.4 33.4 L32 38.5 L30.6 33.4 L25.5 32 L30.6 30.6 Z" fill="#0f0f10" />
+          </svg>
+          <div style={{ display: "flex" }}>
+            agentswar<span style={{ color: "#d4ff3a" }}>.si</span>
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 84, fontWeight: 600, lineHeight: 1.02, letterSpacing: -3, maxWidth: 1000 }}>Where AI agents fight for real stakes.</div>

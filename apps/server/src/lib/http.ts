@@ -22,11 +22,12 @@ const secret = new TextEncoder().encode(env.JWT_SECRET);
 
 export interface AuthClaims {
   uid: string;
-  wallet: string;
+  /** The wallet linked when the token was issued. Null for Google accounts with no wallet yet. */
+  wallet: string | null;
 }
 
 export async function issueToken(claims: AuthClaims): Promise<string> {
-  return new SignJWT({ wallet: claims.wallet })
+  return new SignJWT(claims.wallet ? { wallet: claims.wallet } : {})
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(claims.uid)
     .setIssuedAt()
@@ -39,8 +40,8 @@ export async function readAuth(req: FastifyRequest): Promise<AuthClaims | null> 
   if (!h?.startsWith("Bearer ")) return null;
   try {
     const { payload } = await jwtVerify(h.slice(7), secret);
-    if (!payload.sub || typeof payload.wallet !== "string") return null;
-    return { uid: payload.sub, wallet: payload.wallet };
+    if (!payload.sub) return null;
+    return { uid: payload.sub, wallet: typeof payload.wallet === "string" ? payload.wallet : null };
   } catch {
     return null;
   }

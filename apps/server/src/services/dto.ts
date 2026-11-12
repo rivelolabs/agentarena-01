@@ -4,7 +4,7 @@ import { db } from "../db/client";
 import { agents, matches, turns, users, type Agent, type Match } from "../db/schema";
 import { spectatorCount } from "../realtime";
 
-type Owner = { wallet: string; handle: string | null } | undefined;
+type Owner = { wallet: string | null; handle: string | null } | undefined;
 
 export function toAgentDTO(a: Agent, owner: Owner, viewerId?: string | null): AgentDTO {
   return {
@@ -18,6 +18,7 @@ export function toAgentDTO(a: Agent, owner: Owner, viewerId?: string | null): Ag
     memory: viewerId === a.ownerId ? a.memory : undefined,
     learn: viewerId === a.ownerId ? a.learn : undefined,
     lessons: parseMemory(a.memory).lessons.filter((l) => !l.startsWith("(")).length,
+    ownerId: a.isHouse ? null : a.ownerId,
     ownerWallet: a.isHouse ? null : owner?.wallet ?? null,
     ownerHandle: a.isHouse ? "AgentsWar House" : owner?.handle ?? null,
     elo: a.elo,
@@ -43,7 +44,7 @@ export async function agentsWithOwners(ids: string[]) {
 
 async function walletsFor(ids: (string | null)[]) {
   const uniq = [...new Set(ids.filter((x): x is string => !!x))];
-  if (!uniq.length) return new Map<string, string>();
+  if (!uniq.length) return new Map<string, string | null>();
   const rows = await db.select({ id: users.id, wallet: users.wallet }).from(users).where(inArray(users.id, uniq));
   return new Map(rows.map((r) => [r.id, r.wallet]));
 }
@@ -63,6 +64,8 @@ export async function toMatchDTOs(rows: Match[], viewerId?: string | null): Prom
       seed: m.seed,
       agentA: a ? toAgentDTO(a.agent, a.owner, viewerId) : null,
       agentB: b ? toAgentDTO(b.agent, b.owner, viewerId) : null,
+      creatorId: m.creatorId,
+      challengerId: m.challengerId,
       creatorWallet: m.creatorId ? wallets.get(m.creatorId) ?? null : null,
       challengerWallet: m.challengerId ? wallets.get(m.challengerId) ?? null : null,
       winnerSide: (m.winnerSide as 0 | 1 | -1 | null) ?? null,

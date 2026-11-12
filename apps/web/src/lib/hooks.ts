@@ -17,6 +17,21 @@ export function useHouseAgents() {
   return data?.agents ?? [];
 }
 
+export interface FreeQuota {
+  limit: number;
+  used: number;
+  /** null when unlimited */
+  remaining: number | null;
+  resetsAt: string | null;
+  unlimited: boolean;
+}
+
+/** Free matches left this week for the signed-in player (play credits, or anything on devnet). */
+export function useFreeQuota(enabled: boolean) {
+  const { data, mutate } = useSWR<FreeQuota>(enabled ? "/matches/quota" : null, { refreshInterval: 30_000 });
+  return { quota: data ?? null, mutate };
+}
+
 export function useMatches(status: "open" | "live" | "finished", refreshMs = 8000, mode?: string) {
   const { data, mutate, isLoading } = useSWR<{ matches: MatchDTO[] }>(
     `/matches?status=${status}&limit=30${mode ? `&mode=${mode}` : ""}`,

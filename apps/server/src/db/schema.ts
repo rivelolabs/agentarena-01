@@ -14,22 +14,35 @@ import {
 
 const lamports = (name: string) => bigint(name, { mode: "number" });
 
+/*
+ * Every table has row level security switched on with no policies. The server connects as the
+ * table owner, which is not affected. On Supabase this keeps the public data API (anon and
+ * authenticated roles) from reading or writing anything directly.
+ */
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
-  wallet: text("wallet").notNull().unique(),
+  /** Solana wallet. Empty for people who signed in with Google and have not linked one yet. */
+  wallet: text("wallet").unique(),
+  /** Google account id ("sub"). Empty for wallet-only accounts. */
+  googleSub: text("google_sub").unique(),
+  email: text("email"),
   handle: text("handle"),
+  /** Real SOL balance held by AgentsWar (lamports). Withdrawable. */
   credits: lamports("credits").notNull().default(0),
+  /** Free play credits (whole units). Never withdrawable, never bought or sold. */
+  playCredits: bigint("play_credits", { mode: "number" }).notNull().default(0),
   isSystem: boolean("is_system").notNull().default(false),
   acceptedTermsAt: timestamp("accepted_terms_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}).enableRLS();
 
 export const authNonces = pgTable("auth_nonces", {
   nonce: text("nonce").primaryKey(),
   wallet: text("wallet").notNull(),
   message: text("message").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-});
+}).enableRLS();
 
 export const agents = pgTable(
   "agents",
@@ -63,13 +76,13 @@ export const agents = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("agents_owner_idx").on(t.ownerId), index("agents_elo_idx").on(t.elo)]
-);
+).enableRLS();
 
 export const matches = pgTable(
   "matches",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    mode: text("mode").notNull(), // credits | escrow | practice
+    mode: text("mode").notNull(), // credits (SOL held by us) | play (free credits) | onchain | escrow | practice
     status: text("status").notNull(), // pending_deposit | open | awaiting_join | live | finished | cancelled | void
     stake: lamports("stake").notNull().default(0),
     feeBps: integer("fee_bps").notNull().default(0),
@@ -91,7 +104,7 @@ export const matches = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
   (t) => [index("matches_status_idx").on(t.status, t.createdAt), index("matches_agents_idx").on(t.agentAId, t.agentBId)]
-);
+).enableRLS();
 
 export const turns = pgTable(
   "turns",
@@ -105,7 +118,7 @@ export const turns = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("turns_match_turn_idx").on(t.matchId, t.turn)]
-);
+).enableRLS();
 
 export const ledger = pgTable(
   "ledger",
@@ -115,6 +128,8 @@ export const ledger = pgTable(
       .notNull()
       .references(() => users.id),
     kind: text("kind").notNull(), // deposit | withdraw | stake | payout | refund | fee | bonus
+    /** sol: amount is lamports of the SOL balance · play: amount is free play credits */
+    currency: text("currency").notNull().default("sol"),
     amount: lamports("amount").notNull(), // signed: + credit, - debit
     status: text("status").notNull().default("completed"),
     txSig: text("tx_sig"),
@@ -132,7 +147,7 @@ export const ledger = pgTable(
       .on(t.txSig)
       .where(sql`kind = 'stake' and tx_sig is not null`),
   ]
-);
+).enableRLS();
 
 export const colonies = pgTable("colonies", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -148,7 +163,7 @@ export const colonies = pgTable("colonies", {
   governorAgentId: uuid("governor_agent_id"),
   sim: jsonb("sim").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}).enableRLS();
 
 export const worldEvents = pgTable(
   "world_events",
@@ -163,7 +178,14 @@ export const worldEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("world_events_colony_idx").on(t.colonyId, t.createdAt)]
-);
+).enableRLS();
+
+/** Small key/value store for deployment facts, e.g. which Solana cluster this database belongs to. */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
 
 export type Colony = typeof colonies.$inferSelect;
 export type User = typeof users.$inferSelect;

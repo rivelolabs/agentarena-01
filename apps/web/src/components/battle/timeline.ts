@@ -7,7 +7,7 @@ import { getFighter, type BattleEvent, type BattleState, type FighterSlug, type 
 import { ELEMENTS } from "../three/fx";
 import { anchorPoint, vis, type VisStore } from "../three/store";
 import { sfx } from "@/lib/sfx";
-import { playAttack, playCounter, playDoubleKO, playKO, playMove, playVictory, type PlayCtx } from "./choreo";
+import { blockAnim, chargeAnim, playAttack, playCounter, playDoubleKO, playKO, playMove, playVictory, type PlayCtx } from "./choreo";
 
 export interface HudFighter {
   hp: number;
@@ -58,9 +58,32 @@ export function syncStatuses(store: VisStore, s: BattleState, opts: { fx?: boole
       foresight: f.status.foresight > 0,
       guard: false,
       charging: false,
+      // below 30% health a fighter stands hunched and unsteady
+      hurt: f.hp > 0 && f.hp / f.maxHp < 0.3,
     });
   }
   if (!opts.keepDistance) vis.distance(store, s.distance);
+}
+
+/**
+ * The engine records a guard's reflected damage and a dodger's counter-cut just before the attack
+ * that caused them. On screen the attack has to come first: the blow lands on the guard, and only
+ * then does the attacker recoil from it.
+ */
+function inCausalOrder(events: BattleEvent[]): BattleEvent[] {
+  const out: BattleEvent[] = [];
+  let held: BattleEvent[] = [];
+  for (const e of events) {
+    if (e.t === "reflect" || e.t === "counter") held.push(e);
+    else if (e.t === "attack" && held.length && held.every((h) => h.side !== e.side)) {
+      out.push(e, ...held);
+      held = [];
+    } else {
+      out.push(...held, e);
+      held = [];
+    }
+  }
+  return [...out, ...held];
 }
 
 export async function playTurn(
@@ -91,6 +114,8 @@ export async function playTurn(
     setHud((h) => ({ ...h, log: [...h.log.slice(-5), { id: logId++, text, side }] }));
 
   setHud((h) => ({ ...h, turn: turn.turn, taunts: turn.taunts }));
+  // clips play at the fight's speed, so strikes stay in time during fast replays and catch-up
+  if (store.getState().rate !== speed) store.setState({ rate: speed });
 
   const ctx: PlayCtx = {
     store,
@@ -109,7 +134,7 @@ export async function playTurn(
 
   // Group consecutive movement into one beat.
   let i = 0;
-  const ev = turn.events;
+  const ev = inCausalOrder(turn.events);
   while (i < ev.length) {
     if (cancelled()) return;
     const e = ev[i];
@@ -129,11 +154,12 @@ export async function playTurn(
       while (i < ev.length && ev[i].t === "stance") stances.push(ev[i++] as Extract<BattleEvent, { t: "stance" }>);
       for (const s of stances) {
         if (s.action === "block") {
-          vis.anim(store, s.side, "block");
+          vis.anim(store, s.side, blockAnim(ctx, s.side));
           vis.patch(store, s.side, { guard: true });
         } else if (s.action === "charge") {
           sfx.charge();
-          vis.anim(store, s.side, "charge");
+          vis.anim(store, s.side, chargeAnim(ctx, s.side));
+          vis.patch(store, s.side, { charging: true });
           vis.popup(store, s.side, "Charging", "info");
         }
       }
@@ -153,7 +179,8 @@ export async function playTurn(
         await sleep(420, speed);
         break;
       case "stunned":
-        vis.anim(store, e.side, "stunned");
+        // VOLT's lightning leaves the victim twitching; anything else leaves them dizzy
+        vis.anim(store, e.side, slugs[1 - e.side] === "volt" ? "electro" : "stunned");
         vis.popup(store, e.side, "Stunned", "info");
         log(`${names[e.side]} is stunned`, e.side);
         await sleep(520, speed);
@@ -196,13 +223,15 @@ export async function playTurn(
       case "counter":
       case "reflect": {
         const target = (1 - e.side) as Side;
-        const blade = e.t === "counter" && playCounter(ctx, e.side);
-        vis.anim(store, e.side, e.t === "counter" ? "strike" : "block");
-        await sleep(120, speed);
+        let blade = false;
+        let at: [number, number, number] | undefined;
+        if (e.t === "counter") ({ blade, at } = await playCounter(ctx, e.side));
+        else await sleep(120, speed);
+        if (cancelled()) return;
         vis.flash(store, target);
         vis.anim(store, target, "hit");
-        vis.spark(store, target, color(e.side));
-        if (blade) vis.gore(store, target, { count: 40, scale: 0.8, up: 0.7 });
+        vis.spark(store, target, color(e.side), false, "chest", at);
+        if (blade) vis.gore(store, target, { pos: at, count: 40, scale: 0.8, up: 0.7 });
         if (e.t === "reflect") vis.effect(store, "guardHit", e.side, { where: "guard", color: ELEMENTS[slugs[e.side]].c1, dur: 0.5 });
         vis.popup(store, target, `-${e.damage}`, "dmg");
         damage(target, e.damage);
@@ -233,6 +262,7 @@ export async function playTurn(
       case "status":
         if (e.effect === "burning") vis.patch(store, e.side, { burning: true });
         if (e.effect === "foresight") vis.patch(store, e.side, { foresight: true });
+        if (e.effect === "stunned") vis.anim(store, e.side, "electro");
         vis.popup(store, e.side, e.effect === "drained" ? `-${e.value} energy` : e.effect, "info");
         await sleep(260, speed);
         break;

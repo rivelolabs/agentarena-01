@@ -22,6 +22,27 @@
       "when": 1794370852240,
       "tag": "0002_realm",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794450964691,
+      "tag": "0003_auth_google_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794454308374,
+      "tag": "0004_play_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794456023821,
+      "tag": "0005_app_settings",
+      "breakpoints": true
     }
   ]
 }

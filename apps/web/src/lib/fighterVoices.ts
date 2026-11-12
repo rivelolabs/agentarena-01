@@ -11,7 +11,7 @@ export const FIGHTER_VOICES: Record<FighterSlug, VoiceProfile> = {
   glitch: { gender: "male", preferred: ["Christopher", "Reed", "Aaron", "Alex"], pitch: 1.05, rate: 1.03 },
   kaiju: { gender: "male", preferred: ["Eric", "Lee", "Rishi", "David", "Daniel"], pitch: 0.90, rate: 0.93 },
   oracle: { gender: "female", preferred: ["Jenny", "Zoe", "Tessa", "Karen", "Samantha"], pitch: 1.0, rate: 0.94 },
-  warrok: { gender: "male", preferred: ["Eric", "Ryan", "David", "Daniel"], pitch: 0.88, rate: 0.92 },
+  warrok: { gender: "female", preferred: ["Jenny", "Aria", "Samantha", "Michelle"], pitch: 0.96, rate: 1.0 },
   noctis: { gender: "male", preferred: ["Arthur", "George", "Daniel", "Ryan"], pitch: 0.95, rate: 0.95 },
   akai: { gender: "female", preferred: ["Ava", "Aria", "Michelle", "Samantha"], pitch: 1.05, rate: 1.06 },
 };

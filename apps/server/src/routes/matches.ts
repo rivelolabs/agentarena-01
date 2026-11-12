@@ -13,6 +13,8 @@ import { runner } from "../battle/runner";
 import { credit, debit } from "../services/ledger";
 import { loadMatchDTO, toMatchDTOs } from "../services/dto";
 import { emitLobby } from "../realtime";
+import { requireWallet } from "../services/users";
+import { assertFreeMatchAllowed, freeQuota } from "../services/quota";
 
 const RESERVATION_MS = 4 * 60_000;
 
@@ -23,18 +25,30 @@ async function ownAgent(agentId: string, uid: string) {
   return a;
 }
 
-function assertStakeAllowed(stake: number) {
+function assertStakeAllowed(stake: number, mode: string) {
+  if (mode === "play") {
+    // free play credits: no real value, allowed on every cluster
+    if (stake > env.MAX_PLAY_STAKE) throw badRequest(`Play stakes are capped at ${env.MAX_PLAY_STAKE} credits`);
+    return;
+  }
   if (stake < env.MIN_STAKE_LAMPORTS) throw badRequest("Stake below minimum");
   if (stake > env.MAX_STAKE_LAMPORTS) throw badRequest("Stake above maximum");
   if (stake > 0 && isMainnet && !env.REAL_MONEY_ENABLED) throw forbidden("Real-money wagers are disabled on this deployment");
 }
 
 export async function matchRoutes(app: FastifyInstance) {
+  /** How many free matches the signed-in player has left this week. */
+  app.get("/matches/quota", async (req) => {
+    const auth = await requireAuth(req);
+    const q = await freeQuota(auth.uid);
+    return { ...q, remaining: q.unlimited ? null : q.remaining };
+  });
+
   app.get("/matches", async (req) => {
     const q = z
       .object({
         status: z.enum(["open", "live", "finished", "all"]).default("all"),
-        mode: z.enum(["credits", "onchain", "escrow", "practice", "pvp"]).optional(),
+        mode: z.enum(["credits", "play", "onchain", "escrow", "practice", "pvp"]).optional(),
         limit: z.coerce.number().int().min(1).max(100).default(30),
       })
       .parse(req.query);
@@ -42,7 +56,7 @@ export async function matchRoutes(app: FastifyInstance) {
     const conds = [];
     if (q.status !== "all") conds.push(eq(matches.status, q.status));
     else conds.push(inArray(matches.status, ["open", "live", "finished"]));
-    if (q.mode === "pvp") conds.push(inArray(matches.mode, ["credits", "onchain", "escrow"]));
+    if (q.mode === "pvp") conds.push(inArray(matches.mode, ["credits", "play", "onchain", "escrow"]));
     else if (q.mode) conds.push(eq(matches.mode, q.mode));
     const rows = await db
       .select()
@@ -67,16 +81,19 @@ export async function matchRoutes(app: FastifyInstance) {
     const body = z
       .object({
         agentId: z.string().uuid(),
-        mode: z.enum(["credits", "onchain", "escrow"]),
+        mode: z.enum(["credits", "play", "onchain", "escrow"]),
+        /** lamports for SOL modes, whole credits for "play" */
         stakeLamports: z.number().int().min(0),
       })
       .parse(req.body);
-    assertStakeAllowed(body.stakeLamports);
+    assertStakeAllowed(body.stakeLamports, body.mode);
     await ownAgent(body.agentId, auth.uid);
 
     if (body.mode === "escrow") {
       if (!escrowEnabled || !programId) throw badRequest("On-chain escrow is not enabled on this server");
       if (body.stakeLamports <= 0) throw badRequest("Escrow matches need a stake");
+      await requireWallet(auth.uid);
+      await db.transaction((tx) => assertFreeMatchAllowed(tx, auth.uid, body.mode, body.stakeLamports));
       const [m] = await db
         .insert(matches)
         .values({
@@ -97,6 +114,8 @@ export async function matchRoutes(app: FastifyInstance) {
     if (body.mode === "onchain") {
       if (!onchainEnabled || !treasuryAddress) throw badRequest("On-chain payments are not enabled on this server");
       if (body.stakeLamports <= 0) throw badRequest("On-chain matches need a stake");
+      await requireWallet(auth.uid);
+      await db.transaction((tx) => assertFreeMatchAllowed(tx, auth.uid, body.mode, body.stakeLamports));
       const [m] = await db
         .insert(matches)
         .values({
@@ -112,20 +131,23 @@ export async function matchRoutes(app: FastifyInstance) {
       return { match: await loadMatchDTO(m.id, auth.uid, false), pay: { to: treasuryAddress.toBase58(), lamports: m.stake, memo: m.id } };
     }
 
+    // In-house escrow: the stake leaves the creator's balance now and is held until the fight ends.
+    const play = body.mode === "play";
     const m = await db.transaction(async (tx) => {
+      await assertFreeMatchAllowed(tx, auth.uid, body.mode, body.stakeLamports);
       const [row] = await tx
         .insert(matches)
         .values({
-          mode: "credits",
+          mode: play ? "play" : "credits",
           status: "open",
           stake: body.stakeLamports,
-          feeBps: env.FEE_BPS,
+          feeBps: play ? 0 : env.FEE_BPS,
           seed: randomToken(16),
           creatorId: auth.uid,
           agentAId: body.agentId,
         })
         .returning();
-      await debit(tx, auth.uid, body.stakeLamports, "stake", { matchId: row.id });
+      await debit(tx, auth.uid, body.stakeLamports, "stake", { matchId: row.id, currency: play ? "play" : "sol" });
       return row;
     });
     emitLobby("lobby:changed", { id: m.id });
@@ -141,7 +163,7 @@ export async function matchRoutes(app: FastifyInstance) {
     if (m.creatorId !== auth.uid) throw forbidden();
     if (m.status !== "pending_deposit") return { match: await loadMatchDTO(id, auth.uid, false) };
     const acc = await waitForEscrow(id, signature, (a) => a.status === ESCROW_STATUS.open);
-    if (acc.playerA.toBase58() !== auth.wallet) throw badRequest("Escrow was funded by a different wallet");
+    if (acc.playerA.toBase58() !== (await requireWallet(auth.uid))) throw badRequest("Escrow was funded by a different wallet");
     if (Number(acc.stake) !== m.stake) throw badRequest("On-chain stake does not match");
     await db.update(matches).set({ status: "open", escrowCreateTx: signature }).where(eq(matches.id, id));
     emitLobby("lobby:changed", { id });
@@ -157,15 +179,17 @@ export async function matchRoutes(app: FastifyInstance) {
     if (!m) throw notFound();
     if (m.creatorId === auth.uid) throw badRequest("You can't join your own challenge. Use Spar to test against yourself.");
 
-    if (m.mode === "credits") {
+    if (m.mode === "credits" || m.mode === "play") {
+      if (m.mode === "credits") assertStakeAllowed(m.stake, m.mode); // the real-money switch may have changed since it was opened
       await db.transaction(async (tx) => {
+        await assertFreeMatchAllowed(tx, auth.uid, m.mode, m.stake);
         const upd = await tx
           .update(matches)
           .set({ status: "live", challengerId: auth.uid, agentBId: agentId })
           .where(and(eq(matches.id, id), eq(matches.status, "open")))
           .returning();
         if (!upd.length) throw conflict("Someone else got there first", "taken");
-        await debit(tx, auth.uid, m.stake, "stake", { matchId: id });
+        await debit(tx, auth.uid, m.stake, "stake", { matchId: id, currency: m.mode === "play" ? "play" : "sol" });
       });
       runner.start(id);
       emitLobby("lobby:changed", { id });
@@ -173,6 +197,8 @@ export async function matchRoutes(app: FastifyInstance) {
     }
 
     if (m.mode === "escrow" || m.mode === "onchain") {
+      await requireWallet(auth.uid); // the stake is paid from, and winnings sent to, this wallet
+      await db.transaction((tx) => assertFreeMatchAllowed(tx, auth.uid, m.mode, m.stake));
       // A reservation that was never funded on-chain expires after RESERVATION_MS.
       const now = new Date();
       const cur = await db.query.matches.findFirst({ where: eq(matches.id, id) });
@@ -215,7 +241,7 @@ export async function matchRoutes(app: FastifyInstance) {
 
       let paid: number;
       try {
-        paid = await verifyStakePayment(signature, auth.wallet, m.stake, id);
+        paid = await verifyStakePayment(signature, await requireWallet(auth.uid), m.stake, id);
       } catch (e) {
         throw badRequest((e as Error).message);
       }
@@ -263,7 +289,7 @@ export async function matchRoutes(app: FastifyInstance) {
     if (m.challengerId !== auth.uid || m.status !== "awaiting_join") throw forbidden("You don't hold the reservation for this match");
     const acc = await waitForEscrow(id, signature, (a) => a.status === ESCROW_STATUS.active);
     const creator = await db.query.users.findFirst({ where: eq(users.id, m.creatorId!) });
-    if (acc.playerB.toBase58() !== auth.wallet || acc.playerA.toBase58() !== creator?.wallet) {
+    if (acc.playerB.toBase58() !== (await requireWallet(auth.uid)) || acc.playerA.toBase58() !== creator?.wallet) {
       // Someone joined on-chain who is not the reserved challenger: refund everyone.
       await settleEscrow(id, acc.playerA.toBase58(), acc.playerB.toBase58(), 2).catch(console.error);
       await db.update(matches).set({ status: "void", error: "Unexpected on-chain join; refunded" }).where(eq(matches.id, id));
@@ -287,7 +313,7 @@ export async function matchRoutes(app: FastifyInstance) {
     if (!m) throw notFound();
     if (m.creatorId !== auth.uid) throw forbidden();
 
-    if (m.mode === "credits") {
+    if (m.mode === "credits" || m.mode === "play") {
       await db.transaction(async (tx) => {
         const upd = await tx
           .update(matches)
@@ -295,7 +321,7 @@ export async function matchRoutes(app: FastifyInstance) {
           .where(and(eq(matches.id, id), eq(matches.status, "open")))
           .returning();
         if (!upd.length) throw conflict("Only open matches can be cancelled");
-        await credit(tx, auth.uid, m.stake, "refund", { matchId: id, note: "Cancelled" });
+        await credit(tx, auth.uid, m.stake, "refund", { matchId: id, note: "Cancelled", currency: m.mode === "play" ? "play" : "sol" });
       });
     } else if (m.mode === "onchain") {
       const upd = await db

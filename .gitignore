@@ -18,3 +18,18 @@ contracts/polygon/lib
 *.tar.gz
 Claude outputs/
 .fuse_hidden*
+
+# Local credentials and scratch files must never be published.
+.env*
+!.env.example
+.claude-tmp/
+*.tsbuildinfo
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials*.json
+service-account*.json
+
+_to_delete/

@@ -5,6 +5,7 @@ import rateLimit from "@fastify/rate-limit";
 import { Server } from "socket.io";
 import { env, corsOrigins } from "./env";
 import { runMigrations, sqlClient } from "./db/client";
+import { assertDatabaseCluster } from "./services/quota";
 import { sendError } from "./lib/http";
 import { setIo } from "./realtime";
 import { runner } from "./battle/runner";
@@ -52,6 +53,7 @@ async function main() {
 
   console.log("Running migrations…");
   await runMigrations();
+  await assertDatabaseCluster();
   await ensureHouseAgents();
   await runner.recover();
   await ensureHouseColony();

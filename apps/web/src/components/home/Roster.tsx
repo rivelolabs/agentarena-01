@@ -18,7 +18,7 @@ export const ROLES: Record<FighterSlug, string> = {
   glitch: "Combat robot",
   kaiju: "Mutant",
   oracle: "Cyber agent",
-  warrok: "Orc grappler",
+  warrok: "Armoured grappler",
   noctis: "Vampire",
   akai: "Kickboxer",
 };

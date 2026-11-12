@@ -29,6 +29,11 @@ const updateSchema = createSchema.partial().extend({
   learn: z.boolean().optional(),
 });
 
+async function ownerOf(uid: string) {
+  const u = await db.query.users.findFirst({ where: eq(users.id, uid), columns: { wallet: true, handle: true } });
+  return { wallet: u?.wallet ?? null, handle: u?.handle ?? null };
+}
+
 export async function agentRoutes(app: FastifyInstance) {
   app.get("/agents/mine", async (req) => {
     const auth = await requireAuth(req);
@@ -37,7 +42,7 @@ export async function agentRoutes(app: FastifyInstance) {
       .from(agents)
       .where(and(eq(agents.ownerId, auth.uid), eq(agents.archived, false)))
       .orderBy(desc(agents.createdAt));
-    const owner = { wallet: auth.wallet, handle: null };
+    const owner = await ownerOf(auth.uid);
     return { agents: rows.map((a) => toAgentDTO(a, owner, auth.uid)) };
   });
 
@@ -82,7 +87,7 @@ export async function agentRoutes(app: FastifyInstance) {
         instructions: body.instructions,
       })
       .returning();
-    return { agent: toAgentDTO(a, { wallet: auth.wallet, handle: null }, auth.uid) };
+    return { agent: toAgentDTO(a, await ownerOf(auth.uid), auth.uid) };
   });
 
   app.patch("/agents/:id", async (req) => {
@@ -105,7 +110,7 @@ export async function agentRoutes(app: FastifyInstance) {
       patch.keyLast4 = body.apiKey.slice(-4);
     }
     const [u] = await db.update(agents).set(patch).where(eq(agents.id, id)).returning();
-    return { agent: toAgentDTO(u, { wallet: auth.wallet, handle: null }, auth.uid) };
+    return { agent: toAgentDTO(u, await ownerOf(auth.uid), auth.uid) };
   });
 
   app.delete("/agents/:id", async (req) => {

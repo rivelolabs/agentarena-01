@@ -5,7 +5,11 @@ import type { Provider } from "./agent";
 
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
-export type MatchMode = "credits" | "onchain" | "escrow" | "practice";
+/**
+ * credits: SOL balance held by AgentsWar (in-house escrow) · play: free play credits
+ * onchain / escrow: paid straight from the wallet · practice: no stake, unranked
+ */
+export type MatchMode = "credits" | "play" | "onchain" | "escrow" | "practice";
 export type MatchStatus = "pending_deposit" | "open" | "awaiting_join" | "live" | "finished" | "cancelled" | "void";
 
 export interface AgentDTO {
@@ -22,6 +26,9 @@ export interface AgentDTO {
   learn?: boolean;
   /** Number of lessons in the playbook (public) */
   lessons: number;
+  /** Account that owns the agent (null for house agents). Use this, not the wallet, to tell whose it is. */
+  ownerId?: string | null;
+  /** Null when the owner signed in with Google and has not linked a wallet */
   ownerWallet: string | null;
   ownerHandle: string | null;
   elo: number;
@@ -53,6 +60,8 @@ export interface MatchDTO {
   seed: string;
   agentA: AgentDTO | null;
   agentB: AgentDTO | null;
+  creatorId?: string | null;
+  challengerId?: string | null;
   creatorWallet: string | null;
   challengerWallet: string | null;
   winnerSide: 0 | 1 | -1 | null;
@@ -80,12 +89,20 @@ export interface PublicConfigDTO {
   minDepositLamports: number;
   minWithdrawLamports: number;
   realMoney: boolean;
+  /** Free play credits: given on sign-up, claimable daily, staked in "play" matches */
+  welcomePlayCredits: number;
+  dailyPlayCredits: number;
+  maxPlayStake: number;
+  /** Google sign-in client ID, or null when Google sign-in is switched off */
+  googleClientId?: string | null;
 }
 
 export interface LedgerDTO {
   id: string;
   kind: "deposit" | "withdraw" | "stake" | "payout" | "refund" | "fee" | "bonus";
+  /** lamports when currency is "sol", whole play credits when "play" */
   amountLamports: number;
+  currency: "sol" | "play";
   status: "completed" | "pending" | "failed";
   txSig: string | null;
   matchId: string | null;

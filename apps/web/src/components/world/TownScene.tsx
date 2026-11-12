@@ -8,6 +8,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { RealFighter } from "../three/RealFighter";
 import type { ToolKind } from "../three/tools";
+import type { PoseName } from "../three/poses";
 import { PauseOffscreen } from "../three/PauseOffscreen";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, OrbitControls } from "@react-three/drei";
@@ -15,7 +16,9 @@ import { Bloom, EffectComposer, N8AO, Vignette } from "@react-three/postprocessi
 import * as THREE from "three";
 import { getFighter, townExchange, townMutter, type BuildingKind, type ColonyDTO, type FighterSlug, type Job, type RealmState, type ResidentAction } from "@clashagent/shared";
 import type { Anim } from "../three/store";
-import { realmClock } from "./clock";
+import { realmClock, timelapseOn } from "./clock";
+import { doingAt, pickSinger, type Doing } from "./schedule";
+import { cheer, fightShout, songLine, storyExchange } from "./stories";
 import { Instanced, surfaces, triplanar, type Placement } from "./Nature";
 import { Traffic } from "./Traffic";
 import { Creations, PLOTS } from "./Creations";
@@ -681,114 +684,213 @@ function Lamp({ position, lit }: { position: [number, number, number]; lit: bool
 
 // ---------------------------------------------------------------- residents
 
-/** Shared between the residents and the conversation director (mutated every frame, not React state). */
+/** Where the street's shared places are. */
+const FIRE: [number, number] = [0, 2.5];
+const LANE = 4.3; // pavement centre line, each side
+const BEHIND = 11.6; // beyond the building lots
+/** gaps between the lots, where people cut through to the creations behind them */
+const GAPS = Array.from({ length: 7 }, (_, i) => LOT_Z0 + 3.8 - i * LOT_STEP);
+
+type P2 = { x: number; z: number };
+const near = (a: P2, b: P2, d = 0.12) => Math.abs(a.x - b.x) < d && Math.abs(a.z - b.z) < d;
+
+/** Walking route from `a` to `b` along the pavements (never through a building). */
+function route(a: P2, b: P2, lane: number): P2[] {
+  const out: P2[] = [];
+  const sideA = a.x < 0 ? -1 : 1;
+  const sideB = b.x < 0 ? -1 : 1;
+  const behind = (p: P2) => Math.abs(p.x) > BEHIND && p.z < GAPS[0] + 0.5 && p.z > GAPS[GAPS.length - 1] - 1;
+  const gapNear = (z: number) => GAPS.reduce((g, x) => (Math.abs(x - z) < Math.abs(g - z) ? x : g), GAPS[0]);
+  let cur = { ...a };
+  const go = (p: P2) => {
+    if (!near(cur, p, 0.05)) out.push(p);
+    cur = p;
+  };
+  if (behind(cur)) go({ x: cur.x, z: gapNear(cur.z) });
+  if (Math.abs(cur.x) > lane + 0.6 || Math.abs(cur.x) < lane - 1.2) go({ x: sideA * lane, z: cur.z });
+  if (sideA !== sideB && Math.abs(b.x) > 1.5) go({ x: sideB * lane, z: cur.z });
+  if (behind(b)) {
+    go({ x: (Math.abs(b.x) > 1.5 ? sideB : sideA) * lane, z: gapNear(b.z) });
+    go({ x: b.x, z: gapNear(b.z) });
+  } else if (Math.abs(b.x) > 1.5) go({ x: sideB * lane, z: b.z });
+  else go({ x: cur.x, z: b.z });
+  go(b);
+  return out;
+}
+
+/** Shared between the residents and the directors (mutated every frame, not React state). */
 interface Talk {
   /** where everyone is standing right now */
   pos: Map<string, THREE.Vector3>;
   /** what someone is saying: shown from `from` to `until`; they stand still and face `face` until `busyUntil` */
   say: Map<string, { text: string; from: number; until: number; busyUntil: number; face: THREE.Vector3 | null }>;
+  /** who has reached their spot (only they get pulled into conversations) */
+  settled: Set<string>;
+  /** what each resident is doing right now */
+  doing: Map<string, Doing>;
+  /** which way each resident is facing, and who is on the move (used by the first-person view) */
+  rot: Map<string, number>;
+  walking: Set<string>;
 }
 
-/** What a resident does once they reach today's spot. */
-const ACT_ANIMS: Record<ResidentAction, Anim[]> = {
-  work: ["idle"],
-  train: ["strike", "dodge", "heavy", "block"],
-  spar: ["strike", "block", "heavy", "dodge"],
-  trade: ["idle"],
-  rest: ["idle"],
-  campaign: ["victory", "idle"],
-  switch_job: ["idle"],
-  create: ["heavy", "strike", "idle"],
-};
-const WORK_ANIMS: Record<Job, Anim[]> = {
-  farmer: ["cast", "idle"],
-  woodcutter: ["heavy", "heavy", "idle"],
-  miner: ["strike", "strike", "heavy"],
-  merchant: ["idle", "cast"],
-  guard: ["block", "idle"],
-  scholar: ["cast", "idle"],
-};
-/** What each trade carries on a work day. */
-const JOB_TOOL: Record<Job, ToolKind> = { farmer: "hoe", woodcutter: "axe", miner: "pickaxe", merchant: "ledger", guard: "spear", scholar: "book" };
-const SQUARE_Z = 6.5;
-
-function Resident({ m, index, structs, talk, realm, picked, onPick }: { m: ColonyDTO["members"][number]; index: number; structs: Struct[]; talk: Talk; realm: RealmState | undefined; picked: boolean; onPick?: (id: string) => void }) {
+function Resident({
+  m,
+  index,
+  colony,
+  structs,
+  talk,
+  ctx,
+  picked,
+  onPick,
+  pov = false,
+}: {
+  m: ColonyDTO["members"][number];
+  index: number;
+  colony: ColonyDTO;
+  structs: Struct[];
+  talk: Talk;
+  ctx: { singer: string | null; pairs: Map<string, { slot: number; left: boolean; foe: string }> };
+  picked: boolean;
+  onPick?: (id: string) => void;
+  /** the viewer is looking through this resident's eyes, so their own body is not drawn */
+  pov?: boolean;
+}) {
+  const realm = colony.sim.realm;
   const g = useRef<THREE.Group>(null);
-  const action: ResidentAction = realm?.residents[m.id]?.action ?? "work";
-  const path = useMemo(() => {
+  const side = index % 2 === 0 ? -1 : 1;
+  const lane = LANE + (((index >> 1) % 3) - 1) * 0.3;
+  const places = useMemo(() => {
     const homes = structs.filter((s) => s.kind === "house");
     const home = homes[index % Math.max(1, homes.length)] ?? structs[0];
     const site = (k: StructKind) => structs.find((s) => s.kind === k);
-    const job = site(JOB_SITE[m.job]) ?? structs[(index * 5 + 3) % structs.length];
-    // where today's plan takes them
-    const dest =
-      action === "train" ? site("dojo")?.z ?? SQUARE_Z - 2 :
-      action === "spar" || action === "campaign" ? SQUARE_Z - (index % 3) * 0.8 :
-      action === "trade" ? site("market")?.z ?? job.z :
-      action === "rest" ? home.z + 1.5 :
-      action === "create" ? (() => {
-        const mine = realm?.creations?.find((c) => c.owner === m.id && c.doneDay === undefined) ?? realm?.creations?.find((c) => c.owner === m.id);
-        return mine ? PLOTS[mine.plot % PLOTS.length][1] : job.z;
-      })() :
-      job.z;
-    const side = index % 2 === 0 ? -1 : 1;
-    const a = home.z + 1.5;
-    const b = Math.abs(dest - a) < 1 ? a - 5 : dest;
-    return { a, b, x: side * (3.7 + ((index >> 1) % 3) * 0.45), side, speed: 1.1 + (index % 4) * 0.18 };
-  }, [structs, index, m.job, action, realm?.creations, m.id]);
+    const front = (s: Struct | undefined, spread: number) => (s ? { x: s.side * 6.3, z: s.z + spread, face: s.side > 0 ? Math.PI / 2 : -Math.PI / 2 } : null);
+    const spread = ((index % 3) - 1) * 1.5;
+    const job = front(site(JOB_SITE[m.job]), spread) ?? { x: side * lane, z: -4 - index * 1.2, face: -side * (Math.PI / 2) };
+    const mine = realm?.creations?.find((c) => c.owner === m.id && c.doneDay === undefined) ?? realm?.creations?.find((c) => c.owner === m.id);
+    const plot = mine
+      ? (() => {
+          const [px, pz] = PLOTS[mine.plot % PLOTS.length];
+          const x = px - Math.sign(px) * 3.4;
+          return { x, z: pz + 1.2, face: Math.sign(px) > 0 ? Math.PI / 2 : -Math.PI / 2 };
+        })()
+      : job;
+    const ang = (index / Math.max(1, colony.members.length)) * Math.PI * 2;
+    return {
+      home: { x: home.side * 5.7, z: home.z + ((index % 2) - 0.5) * 1.2, face: home.side > 0 ? -Math.PI / 2 : Math.PI / 2 },
+      job,
+      dojo: front(site("dojo"), spread) ?? { x: side * lane, z: -6 - (index % 4) * 1.4, face: -side * (Math.PI / 2) },
+      market: front(site("market"), spread) ?? { x: side * lane, z: 12 + (index % 3), face: -side * (Math.PI / 2) },
+      plot,
+      campaign: { x: side * 3.9, z: 5 + (index % 3) * 0.6, face: -side * (Math.PI / 2) },
+      square: { x: FIRE[0] + Math.sin(ang) * 3, z: FIRE[1] + Math.cos(ang) * 3, face: ang + Math.PI },
+      ringside: { x: FIRE[0] + Math.sin(ang) * 3.6, z: FIRE[1] + Math.cos(ang) * 3.6, face: ang + Math.PI },
+      fire: { x: FIRE[0] + Math.sin(ang) * 2.6, z: FIRE[1] + Math.cos(ang) * 2.6, face: ang + Math.PI },
+    };
+  }, [structs, index, m.job, m.id, realm?.creations, colony.members.length, side, lane]);
   const color = useMemo(() => getFighter(m.fighter as FighterSlug).palette.primary, [m.fighter]);
-  const st = useRef({ t: index * 2.3, anim: "walk" as Anim, animAt: 0 });
-  const [anim, setAnim] = useState<Anim>("walk");
+  const st = useRef({ anim: "idle" as Anim, pose: null as PoseName | null, i: 0, at: 0, cue: 0, route: [] as P2[], key: "", tool: null as ToolKind | null, shown: true });
+  const [view, setView] = useState<{ anim: Anim; cue: number; tool: ToolKind | null; pose: PoseName | null }>({ anim: "idle", cue: 0, tool: null, pose: "stand" });
   const [line, setLine] = useState<string | null>(null);
   const cur = useRef<{ line: string | null }>({ line: null });
+  const started = useRef(false);
+
   useFrame(({ clock }, dt) => {
-    if (!g.current) return;
+    const G = g.current;
+    if (!G) return;
     const T = clock.elapsedTime;
+    const { hour } = realmClock();
+    const doing = doingAt(hour, m, realm, ctx);
+    talk.doing.set(m.id, doing);
+    const pair = ctx.pairs.get(m.id);
+    const fast = timelapseOn() ? 4 : 1;
+    // where they should be right now
+    let target: { x: number; z: number; face: number };
+    if (doing.spot === "ring" && pair) {
+      const cz = FIRE[1] - 0.6 - pair.slot * 3;
+      target = { x: FIRE[0] + (pair.left ? -0.85 : 0.85), z: cz, face: pair.left ? Math.PI / 2 : -Math.PI / 2 };
+    } else if (doing.spot === "patrol") {
+      // up and down the street, each guard on their own beat
+      const span = 44;
+      const u = (T * 0.9 * fast + index * 13) % (span * 2);
+      const zz = 12 - (u < span ? u : span * 2 - u);
+      target = { x: side * lane, z: zz, face: u < span ? Math.PI : 0 };
+    } else if (doing.spot === "fire" && ctx.singer === m.id) target = { x: FIRE[0], z: FIRE[1] + 1.3, face: 0 };
+    else target = places[doing.spot as keyof typeof places] ?? places.home;
+
+    if (!started.current) {
+      // first frame: start where they'd plausibly be, not all at the door
+      started.current = true;
+      G.position.set(target.x, 0, target.z);
+      G.rotation.y = target.face;
+    }
+    const key = doing.spot === "patrol" ? "patrol" : `${doing.spot}:${target.x.toFixed(1)}:${target.z.toFixed(1)}`;
+    const s = st.current;
+    if (key !== s.key) {
+      s.key = key;
+      s.route = doing.spot === "patrol" ? [] : route({ x: G.position.x, z: G.position.z }, target, side * lane > 0 ? lane : lane);
+    }
+    if (doing.spot === "patrol" && !s.route.length && !near({ x: G.position.x, z: G.position.z }, target, 0.6)) s.route = route({ x: G.position.x, z: G.position.z }, target, lane);
+
     const talking = talk.say.get(m.id);
     const busy = !!talking && T < talking.busyUntil;
-    const len = Math.max(2, Math.abs(path.b - path.a));
-    const walkT = len / path.speed;
-    const ACT = action === "rest" ? 9 : 6.5;
-    const HOME = 3;
-    const cycle = walkT * 2 + ACT + HOME;
-    if (!busy) st.current.t += Math.min(0.1, dt);
-    const t = st.current.t % cycle;
-    const dir = Math.sign(path.b - path.a) || 1;
-    let z: number;
     let want: Anim;
-    let face: number;
-    if (t < walkT) {
-      z = path.a + dir * (t / walkT) * len;
-      want = "walk";
-      face = dir > 0 ? 0 : Math.PI;
-    } else if (t < walkT + ACT) {
-      z = path.b;
-      // at the spot: face the building (or the other fighter) and do the thing
-      const list = action === "work" ? WORK_ANIMS[m.job] : ACT_ANIMS[action];
-      want = list[Math.floor((t - walkT) / 1.6) % list.length];
-      face = action === "spar" || action === "campaign" ? (path.side > 0 ? -Math.PI / 2 : Math.PI / 2) : path.side > 0 ? Math.PI / 2 : -Math.PI / 2;
-    } else if (t < walkT * 2 + ACT) {
-      z = path.b - dir * ((t - walkT - ACT) / walkT) * len;
-      want = "walk";
-      face = dir > 0 ? Math.PI : 0;
-    } else {
-      z = path.a;
-      want = "idle";
-      face = path.side > 0 ? Math.PI / 2 : -Math.PI / 2;
+    let pose: PoseName | null = null;
+    let face = G.rotation.y;
+    let moving = false;
+    if (!busy && s.route.length) {
+      const p = s.route[0];
+      const dx = p.x - G.position.x;
+      const dz = p.z - G.position.z;
+      const d = Math.hypot(dx, dz);
+      const step = Math.min(d, (1.2 + (index % 4) * 0.1) * fast * Math.min(0.1, dt));
+      if (d < 0.05) s.route.shift();
+      else {
+        G.position.x += (dx / d) * step;
+        G.position.z += (dz / d) * step;
+        face = Math.atan2(dx, dz);
+        moving = true;
+      }
+    }
+    if (doing.spot === "patrol" && !moving) {
+      G.position.x += (target.x - G.position.x) * Math.min(1, dt * 4);
+      G.position.z += (target.z - G.position.z) * Math.min(1, dt * 4);
+      face = target.face;
+    }
+    talk.settled[moving ? "delete" : "add"](m.id);
+    if (moving || doing.spot === "patrol") want = "walk";
+    else {
+      // at the spot: everyday work and life are posed in code; fights and dances use clips
+      if (T - s.at > 1.9) {
+        s.at = T;
+        s.i += 1;
+        s.cue += 1;
+      }
+      want = doing.anims.length ? doing.anims[s.i % doing.anims.length] : "idle";
+      pose = doing.pose ?? (doing.anims.length ? null : "stand");
+      face = target.face;
     }
     if (busy) {
+      // stop and talk with the hands
       want = "idle";
-      if (talking.face) face = Math.atan2(talking.face.x - g.current.position.x, talking.face.z - g.current.position.z);
+      pose = "talk";
+      if (talking.face) face = Math.atan2(talking.face.x - G.position.x, talking.face.z - G.position.z);
     }
-    g.current.position.set(path.x, 0, z);
-    const diff = Math.atan2(Math.sin(face - g.current.rotation.y), Math.cos(face - g.current.rotation.y));
-    g.current.rotation.y += diff * Math.min(1, dt * 8);
-    let p = talk.pos.get(m.id);
-    if (!p) talk.pos.set(m.id, (p = new THREE.Vector3()));
-    p.copy(g.current.position);
-    if (want !== st.current.anim) {
-      st.current.anim = want;
-      setAnim(want);
+    // asleep: indoors once they reach the door
+    const shown = doing.visible || moving;
+    if (shown !== s.shown) G.visible = s.shown = shown;
+    const diff = Math.atan2(Math.sin(face - G.rotation.y), Math.cos(face - G.rotation.y));
+    G.rotation.y += diff * Math.min(1, dt * 8);
+    let pp = talk.pos.get(m.id);
+    if (!pp) talk.pos.set(m.id, (pp = new THREE.Vector3()));
+    pp.copy(G.position);
+    talk.rot.set(m.id, G.rotation.y);
+    talk.walking[moving || doing.spot === "patrol" ? "add" : "delete"](m.id);
+    const tool = doing.tool;
+    if (want !== s.anim || tool !== s.tool || pose !== s.pose || (!pose && want !== "walk" && want !== "idle" && s.cue !== view.cue && !moving)) {
+      s.anim = want;
+      s.tool = tool;
+      s.pose = pose;
+      setView({ anim: want, cue: s.cue, tool, pose });
     }
     const text = talking && T >= talking.from && T < talking.until ? talking.text : null;
     if (text !== cur.current.line) {
@@ -811,37 +913,73 @@ function Resident({ m, index, structs, talk, realm, picked, onPick }: { m: Colon
       }}
       onPointerOut={() => (document.body.style.cursor = "")}
     >
-      <Suspense fallback={null}>
-        <RealFighter slug={m.fighter as FighterSlug} anim={anim} phase={index} tool={action === "work" ? JOB_TOOL[m.job] : action === "create" ? "hammer" : null} />
-      </Suspense>
+      <group visible={!pov}>
+        <Suspense fallback={null}>
+          <RealFighter slug={m.fighter as FighterSlug} anim={view.anim} cue={view.cue} phase={index} tool={view.tool} pose={view.pose} />
+        </Suspense>
+        <NameTag name={elder ? `★ ${m.name}` : m.name} job={m.job} />
+        {/* the words are in the Street talk chat; this only marks who is speaking (or singing) */}
+        <SpeechSprite text={line ? (line.startsWith("♪") ? "♪" : "…") : null} color={color} y={2.6} size={0.012} />
+      </group>
       {/* a generous invisible hit box so residents are easy to click */}
-      <mesh position={[0, 1, 0]} visible={false}>
-        <boxGeometry args={[0.9, 2, 0.9]} />
-      </mesh>
-      {picked && (
+      {!pov && (
+        <mesh position={[0, 1, 0]} visible={false}>
+          <boxGeometry args={[0.9, 2, 0.9]} />
+        </mesh>
+      )}
+      {picked && !pov && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
           <ringGeometry args={[0.55, 0.7, 40]} />
           <meshBasicMaterial color={color} toneMapped={false} transparent opacity={0.9} />
         </mesh>
       )}
-      <NameTag name={elder ? `★ ${m.name}` : m.name} job={m.job} />
-      {/* the words are in the Street talk chat; this only marks who is speaking */}
-      <SpeechSprite text={line ? "…" : null} color={color} y={2.6} size={0.012} />
     </group>
   );
 }
 
-/** Starts conversations: every few seconds the two closest free residents stop, face each other and talk. */
-function Chatter({ colony, residents, talk }: { colony: ColonyDTO; residents: ColonyDTO["members"]; talk: Talk }) {
-  const next = useRef(4);
+/**
+ * Starts conversations between residents who are standing near each other, and runs the
+ * shows: cheering at the afternoon spar, the song at the evening fire, stories about the past.
+ */
+function Chatter({ colony, residents, talk, ctx }: { colony: ColonyDTO; residents: ColonyDTO["members"]; talk: Talk; ctx: { singer: string | null; pairs: Map<string, { slot: number; left: boolean; foe: string }> } }) {
+  const next = useRef(3);
+  const nextShow = useRef(2);
   useFrame(({ clock }) => {
     const T = clock.elapsedTime;
-    if (T < next.current || residents.length === 0) return;
-    const free = residents.filter((m) => talk.pos.has(m.id) && !(talk.say.get(m.id) && T < talk.say.get(m.id)!.busyUntil));
+    if (residents.length === 0) return;
+    const { hour } = realmClock();
+    const free = residents.filter((m) => talk.settled.has(m.id) && talk.doing.get(m.id)?.visible !== false && !(talk.say.get(m.id) && T < talk.say.get(m.id)!.busyUntil));
+    const r = Math.random;
+
+    // the shows
+    if (T >= nextShow.current) {
+      nextShow.current = T + 4 + r() * 3;
+      if (hour >= 17.5 && hour < 21.5 && ctx.singer) {
+        const singer = residents.find((x) => x.id === ctx.singer);
+        if (singer && talk.settled.has(singer.id)) {
+          talk.say.set(singer.id, { text: songLine(colony, r), from: T, until: T + 3.8, busyUntil: T, face: null });
+          nextShow.current = T + 6 + r() * 3;
+        }
+      } else if (hour >= 15 && hour < 16.4) {
+        const fighters = residents.filter((x) => ctx.pairs.has(x.id) && talk.settled.has(x.id));
+        const fans = free.filter((x) => talk.doing.get(x.id)?.spot === "ringside");
+        if (fans.length && fighters.length && r() < 0.65) {
+          const f = pick(fans, r);
+          const who = pick(fighters, r);
+          talk.say.set(f.id, { text: cheer(who.name, r), from: T, until: T + 2.6, busyUntil: T, face: null });
+        } else if (fighters.length) {
+          const f = pick(fighters, r);
+          talk.say.set(f.id, { text: fightShout(r), from: T, until: T + 2.2, busyUntil: T, face: null });
+        }
+      }
+    }
+
+    if (T < next.current) return;
     let best: [ColonyDTO["members"][number], ColonyDTO["members"][number]] | null = null;
-    let bestD = 10; // close enough to call across the street
+    let bestD = 7; // close enough to talk
     for (let i = 0; i < free.length; i++)
       for (let j = i + 1; j < free.length; j++) {
+        if (free[i].id === ctx.singer || free[j].id === ctx.singer) continue;
         const d = talk.pos.get(free[i].id)!.distanceTo(talk.pos.get(free[j].id)!);
         if (d < bestD) {
           bestD = d;
@@ -849,23 +987,259 @@ function Chatter({ colony, residents, talk }: { colony: ColonyDTO; residents: Co
         }
       }
     if (best) {
-      const [a, b] = Math.random() < 0.5 ? best : [best[1], best[0]];
-      const [l1, l2] = townExchange(colony, a, b, Math.random);
+      const [a, b] = r() < 0.5 ? best : [best[1], best[0]];
+      const evening = hour >= 17.5 && hour < 21.5;
+      const story = r() < (evening ? 0.75 : 0.4) ? storyExchange(colony, a, b, r, evening) : null;
+      const [l1, l2] = story ?? townExchange(colony, a, b, r);
       const pa = talk.pos.get(a.id)!.clone();
       const pb = talk.pos.get(b.id)!.clone();
       talk.say.set(a.id, { text: l1, from: T + 0.4, until: T + 4.2, busyUntil: T + 7.6, face: pb });
       talk.say.set(b.id, { text: l2, from: T + 3.6, until: T + 7.4, busyUntil: T + 7.6, face: pa });
-      next.current = T + 9 + Math.random() * 4;
-    } else if (free.length) {
-      const a = free[Math.floor(Math.random() * free.length)];
-      talk.say.set(a.id, { text: townMutter(colony, a, Math.random), from: T, until: T + 3.4, busyUntil: T, face: null });
-      next.current = T + 5 + Math.random() * 4;
-    } else next.current = T + 1;
+      next.current = T + 8 + r() * 4;
+    } else if (free.length && r() < 0.5) {
+      const a = free[Math.floor(r() * free.length)];
+      const night = hour < 5.5 || hour >= 23;
+      const text = night ? pick(["All quiet.", "Cold one tonight.", "Lamps are holding.", "Nothing on the road.", "Another hour till dawn."], r) : townMutter(colony, a, r);
+      talk.say.set(a.id, { text, from: T, until: T + 3.4, busyUntil: T, face: null });
+      next.current = T + 6 + r() * 4;
+    } else next.current = T + 2;
   });
   return null;
 }
+const pick = <T,>(xs: T[], r: () => number) => xs[Math.floor(r() * xs.length)];
 
-// ---------------------------------------------------------------- environment
+// ---------------------------------------------------------------- townsfolk
+
+/**
+ * Ordinary people who live around the colony but aren't fighters: a building crew that helps
+ * on residents' creations and the empty lots, and visitors who come to shop, look at what the
+ * residents built, watch the afternoon spar and stay for the fire. They keep the same hours
+ * as everyone else and go home through the town gate at night.
+ * Models: Mixamo "Pete" and "Suzie" (see /public/models/NOTICE.md).
+ */
+type FolkKind = "builder" | "visitor";
+interface Folk {
+  id: string;
+  name: string;
+  role: string;
+  kind: FolkKind;
+  model: { url: string; height: number; tint?: Record<string, string> };
+  color: string;
+}
+const FOLK: Folk[] = [
+  { id: "folk-pete", name: "Pete", role: "builder", kind: "builder", model: { url: "/models/people/pete.glb", height: 1.8 }, color: "#ff9a3d" },
+  { id: "folk-suzie", name: "Suzie", role: "visitor", kind: "visitor", model: { url: "/models/people/suzie.glb", height: 1.66 }, color: "#e8e4dc" },
+  { id: "folk-dev", name: "Dev", role: "builder", kind: "builder", model: { url: "/models/people/pete.glb", height: 1.73, tint: { helmet: "#f4d21f", shirt: "#8fb4e6", vest: "#f2ff66" } }, color: "#f4d21f" },
+  { id: "folk-mira", name: "Mira", role: "trader", kind: "visitor", model: { url: "/models/people/suzie.glb", height: 1.6, tint: { coat: "#3f8a8f", shirt: "#f3dfae" } }, color: "#3f8a8f" },
+];
+
+interface FolkDoing {
+  x: number;
+  z: number;
+  face: number;
+  pose: PoseName | null;
+  anim: Anim;
+  tool: ToolKind | null;
+  visible: boolean;
+}
+
+function folkAt(hour: number, f: Folk, i: number, structs: Struct[], colony: ColonyDTO): FolkDoing {
+  const side = i % 2 === 0 ? 1 : -1;
+  const gate = { x: side * LANE, z: 15.5, face: Math.PI, pose: "stand" as PoseName, anim: "idle" as Anim, tool: null, visible: false };
+  const ang = 0.5 + i * 1.57;
+  const ring = (r: number, pose: PoseName | null, anim: Anim = "idle"): FolkDoing => ({ x: FIRE[0] + Math.sin(ang) * r, z: FIRE[1] + Math.cos(ang) * r, face: ang + Math.PI, pose, anim, tool: null, visible: true });
+  const front = (s: Struct, dz = 0): P2 & { face: number } => ({ x: s.side * 6.3, z: s.z + dz, face: s.side > 0 ? Math.PI / 2 : -Math.PI / 2 });
+  const beside = (plot: number, dz: number) => {
+    const [px, pz] = PLOTS[plot % PLOTS.length];
+    return { x: px - Math.sign(px) * 3.4, z: pz + dz, face: Math.sign(px) > 0 ? Math.PI / 2 : -Math.PI / 2 };
+  };
+  const creations = colony.sim.realm?.creations ?? [];
+  if (hour < 6.5 || hour >= 22) return gate;
+  if (hour >= 12 && hour < 13.5) return ring(4.3, "eat");
+  if (hour >= 17.5 && hour < 21.5) return f.kind === "visitor" && i === 1 ? ring(3.4, null, "hiphop") : ring(4.3, i % 2 ? "clap" : "talk");
+  if (hour >= 21.5) return { ...gate, visible: true };
+  if (f.kind === "builder") {
+    if (hour >= 15 && hour < 16.4 && i === 2) return ring(4.4, "clap");
+    // help on a creation that's going up; otherwise fit out an empty lot; otherwise fix the gate
+    const site = creations.find((c) => c.doneDay === undefined);
+    const lots = structs.filter((s) => s.kind === "lot");
+    const at = site ? beside(site.plot, i === 0 ? -1.2 : 2.4) : lots.length ? front(lots[(i + Math.floor(hour / 4)) % lots.length], i === 0 ? -1 : 1) : { x: side * 5.2, z: 9.6, face: 0 };
+    return { ...at, pose: "hammer", anim: "idle", tool: "hammer", visible: true };
+  }
+  if (hour >= 15 && hour < 16.6) return ring(4.4, i === 1 ? "cheer" : "clap");
+  // visitors make the rounds: the market, things residents built, the shrine
+  const stops: (P2 & { face: number })[] = [];
+  const market = structs.find((s) => s.kind === "market");
+  if (market) stops.push(front(market, i === 1 ? -1.6 : 1.6));
+  for (const c of creations.filter((c) => c.doneDay !== undefined).slice(0, 4)) stops.push(beside(c.plot, i === 1 ? -0.8 : 2));
+  const shrine = structs.find((s) => s.kind === "shrine");
+  if (shrine) stops.push(front(shrine, 1.2));
+  if (!stops.length) stops.push({ x: side * LANE, z: 4, face: -side * (Math.PI / 2) });
+  const stop = stops[(Math.floor(hour * 1.5) + i) % stops.length];
+  return { ...stop, pose: i === 3 ? "serve" : "talk", anim: "idle", tool: i === 3 ? "ledger" : null, visible: true };
+}
+
+const FOLK_LINES: Record<FolkKind, ((colony: ColonyDTO) => string)[]> = {
+  builder: [
+    () => "Mind the scaffolding!",
+    () => "Measure twice, cut once.",
+    (c) => {
+      const w = c.sim.realm?.creations?.find((x) => x.doneDay === undefined);
+      return w ? `"${w.name}" will be up in ${Math.max(1, w.days - w.progress)} more day${w.days - w.progress > 1 ? "s" : ""}.` : "Nothing going up today. We'll fix the fences.";
+    },
+    (c) => `${c.sim.resources.timber} timber in the yard. Enough for now.`,
+    () => "Lunch at twelve. Don't be late.",
+  ],
+  visitor: [
+    (c) => {
+      const done = (c.sim.realm?.creations ?? []).filter((x) => x.doneDay !== undefined);
+      return done.length ? `We came to see "${done[done.length - 1].name}". ${done[done.length - 1].ownerName} built it!` : `First time in ${c.name}. It's growing fast.`;
+    },
+    (c) => `Rice is ${c.sim.realm?.prices.rice ?? 1} koku here. Cheaper than at home.`,
+    () => "Is the spar at three? I want a good spot.",
+    (c) => (c.sim.realm?.elder ? `They say ${c.sim.realm.elder.name} runs this place well.` : "Who's in charge here?"),
+    () => "Let's stay for the fire tonight.",
+  ],
+};
+
+function FolkNPC({ f, index, structs, colony }: { f: Folk; index: number; structs: Struct[]; colony: ColonyDTO }) {
+  const g = useRef<THREE.Group>(null);
+  const lane = LANE + (index % 2 ? 0.45 : -0.45);
+  const st = useRef({ key: "", route: [] as P2[], started: false, shown: true, sayAt: 12 + index * 9, until: 0, anim: "idle" as Anim, pose: null as PoseName | null, tool: null as ToolKind | null });
+  const [view, setView] = useState<{ anim: Anim; pose: PoseName | null; tool: ToolKind | null }>({ anim: "idle", pose: "stand", tool: null });
+  const [talking, setTalking] = useState(false);
+  useFrame(({ clock }, dt) => {
+    const G = g.current;
+    if (!G) return;
+    const T = clock.elapsedTime;
+    const d = folkAt(realmClock().hour, f, index, structs, colony);
+    const s = st.current;
+    if (!s.started) {
+      s.started = true;
+      G.position.set(d.x, 0, d.z);
+      G.rotation.y = d.face;
+    }
+    const key = `${d.x.toFixed(1)}:${d.z.toFixed(1)}`;
+    if (key !== s.key) {
+      s.key = key;
+      s.route = route({ x: G.position.x, z: G.position.z }, d, lane);
+    }
+    let moving = false;
+    let face = d.face;
+    if (s.route.length) {
+      const p = s.route[0];
+      const dx = p.x - G.position.x;
+      const dz = p.z - G.position.z;
+      const dist = Math.hypot(dx, dz);
+      const step = Math.min(dist, 1.15 * (timelapseOn() ? 4 : 1) * Math.min(0.1, dt));
+      if (dist < 0.05) s.route.shift();
+      else {
+        G.position.x += (dx / dist) * step;
+        G.position.z += (dz / dist) * step;
+        face = Math.atan2(dx, dz);
+        moving = true;
+      }
+    }
+    const shown = d.visible || moving;
+    if (shown !== s.shown) G.visible = s.shown = shown;
+    const diff = Math.atan2(Math.sin(face - G.rotation.y), Math.cos(face - G.rotation.y));
+    G.rotation.y += diff * Math.min(1, dt * 8);
+    const anim: Anim = moving ? "walk" : d.anim;
+    const pose = moving ? null : d.anim !== "idle" ? null : d.pose;
+    if (anim !== s.anim || pose !== s.pose || d.tool !== s.tool) {
+      s.anim = anim;
+      s.pose = pose;
+      s.tool = d.tool;
+      setView({ anim, pose, tool: d.tool });
+    }
+    // now and then they say something about the town
+    if (shown && !moving && T > s.sayAt) {
+      const lines = FOLK_LINES[f.kind];
+      emitTalk(f.name, lines[Math.floor(Math.random() * lines.length)](colony), f.color);
+      s.sayAt = T + 38 + Math.random() * 30;
+      s.until = T + 3.5;
+      setTalking(true);
+    } else if (s.until && T > s.until) {
+      s.until = 0;
+      setTalking(false);
+    }
+  });
+  return (
+    <group ref={g}>
+      <Suspense fallback={null}>
+        <RealFighter slug="glitch" custom={f.model} anim={view.anim} pose={view.pose} tool={view.tool} phase={index + 3} />
+      </Suspense>
+      <NameTag name={f.name} job={f.role} />
+      <SpeechSprite text={talking ? "…" : null} color={f.color} y={2.5} size={0.012} />
+    </group>
+  );
+}
+
+function Townsfolk({ structs, colony }: { structs: Struct[]; colony: ColonyDTO }) {
+  // a small colony gets a couple of them; a busy one gets the whole crowd
+  const n = Math.min(FOLK.length, 2 + Math.floor(colony.members.length / 3));
+  return (
+    <>
+      {FOLK.slice(0, n).map((f, i) => (
+        <FolkNPC key={f.id} f={f} index={i} structs={structs} colony={colony} />
+      ))}
+    </>
+  );
+}
+
+/** The evening fire in the middle of the street. */
+function Campfire() {
+  const flames = useRef<THREE.Group>(null);
+  const light = useRef<THREE.PointLight>(null);
+  const root = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const { hour } = realmClock();
+    const lit = hour >= 17.3 && hour < 22.2;
+    if (root.current) root.current.visible = (hour >= 11.5 && hour < 23) || lit;
+    if (flames.current) {
+      flames.current.visible = lit;
+      flames.current.children.forEach((f, i) => {
+        const t = clock.elapsedTime * (7 + i);
+        f.scale.set(1 + Math.sin(t) * 0.12, 1 + Math.sin(t * 1.3 + i) * 0.25, 1 + Math.cos(t) * 0.12);
+      });
+    }
+    if (light.current) light.current.intensity = lit ? 14 + Math.sin(clock.elapsedTime * 13) * 2.5 : 0;
+  });
+  return (
+    <group ref={root} position={[FIRE[0], 0.02, FIRE[1]]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
+        <circleGeometry args={[0.95, 24]} />
+        <meshStandardMaterial color="#3a3530" roughness={1} userData={{ keepLook: true }} />
+      </mesh>
+      {Array.from({ length: 9 }, (_, i) => (
+        <mesh key={i} position={[Math.sin((i / 9) * Math.PI * 2) * 0.85, 0.1, Math.cos((i / 9) * Math.PI * 2) * 0.85]} castShadow>
+          <dodecahedronGeometry args={[0.17, 0]} />
+          <meshStandardMaterial color="#7d776d" roughness={0.9} />
+        </mesh>
+      ))}
+      {[0, 1, 2, 3].map((i) => (
+        <mesh key={i} position={[0, 0.14, 0]} rotation={[0, (i / 4) * Math.PI, Math.PI / 2 - 0.35]} castShadow>
+          <cylinderGeometry args={[0.07, 0.08, 1.05, 7]} />
+          <meshStandardMaterial color="#5a3b22" roughness={0.9} userData={{ keepLook: true }} />
+        </mesh>
+      ))}
+      <group ref={flames} position={[0, 0.25, 0]}>
+        {[
+          [0, 0, 0.32, 0.9, "#ff8a2a"],
+          [0.12, 0.05, 0.22, 0.65, "#ffb347"],
+          [-0.1, -0.06, 0.2, 0.6, "#ff6a1a"],
+          [0.02, 0.1, 0.14, 0.5, "#ffe08a"],
+        ].map(([x, z, r, h, c], i) => (
+          <mesh key={i} position={[x as number, (h as number) / 2, z as number]}>
+            <coneGeometry args={[r as number, h as number, 10]} />
+            <meshBasicMaterial color={c as string} toneMapped={false} transparent opacity={0.9} />
+          </mesh>
+        ))}
+      </group>
+      <pointLight ref={light} position={[0, 1, 0]} color="#ff9a4a" distance={14} decay={1.6} castShadow={false} />
+    </group>
+  );
+}
 
 function Street({ accent, name }: { accent: string; name: string }) {
   const mats = useMemo(() => {
@@ -1098,11 +1472,136 @@ function Rig() {
   return null;
 }
 
-export function TownScene({ colony, picked = null, onPick }: { colony: ColonyDTO; picked?: string | null; onPick?: (id: string | null) => void }) {
+/**
+ * First-person view: the camera sits at one resident's eyes and goes wherever their day takes
+ * them. Dragging turns the head; the body (and so the view) still follows the resident.
+ */
+const EYE = 1.74;
+function PovCamera({ id, talk, onDoing }: { id: string; talk: Talk; onDoing?: (label: string) => void }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const gl = useThree((s) => s.gl);
+  const look = useRef({ yaw: 0, pitch: -0.04, drag: false, x: 0, y: 0 });
+  const st = useRef({ yaw: null as number | null, bob: 0, amp: 0, label: "", pos: new THREE.Vector3(), ready: false });
+  const cb = useRef(onDoing);
+  cb.current = onDoing;
+
+  useEffect(() => {
+    const el = gl.domElement;
+    const L = look.current;
+    const before = { fov: camera.fov, near: camera.near };
+    camera.fov = 74;
+    camera.near = 0.06;
+    camera.updateProjectionMatrix();
+    const down = (e: PointerEvent) => {
+      L.drag = true;
+      L.x = e.clientX;
+      L.y = e.clientY;
+      el.setPointerCapture?.(e.pointerId);
+      el.style.cursor = "grabbing";
+    };
+    const move = (e: PointerEvent) => {
+      if (!L.drag) return;
+      L.yaw -= (e.clientX - L.x) * 0.0045;
+      L.pitch = Math.max(-0.95, Math.min(0.8, L.pitch - (e.clientY - L.y) * 0.0038));
+      L.x = e.clientX;
+      L.y = e.clientY;
+    };
+    const up = () => {
+      L.drag = false;
+      el.style.cursor = "grab";
+    };
+    const touch = el.style.touchAction;
+    el.style.touchAction = "none";
+    el.style.cursor = "grab";
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      el.style.cursor = "";
+      el.style.touchAction = touch;
+      // hand the camera back to the overhead view
+      camera.fov = before.fov;
+      camera.near = before.near;
+      camera.updateProjectionMatrix();
+      camera.rotation.order = "XYZ";
+      camera.position.set(2.2, 6.2, 25);
+      camera.lookAt(0, 2.6, -10);
+    };
+  }, [camera, gl]);
+
+  // mounted after the residents, so this runs once they have moved this frame (and before the frame is drawn)
+  useFrame((_, rawDt) => {
+    const p = talk.pos.get(id);
+    if (!p) return;
+    const dt = Math.min(0.1, rawDt);
+    const s = st.current;
+    const L = look.current;
+    const body = talk.rot.get(id) ?? 0;
+    if (s.yaw === null) s.yaw = body;
+    // the head follows the body a beat late, like a real turn
+    s.yaw += Math.atan2(Math.sin(body - s.yaw), Math.cos(body - s.yaw)) * Math.min(1, dt * 4.5);
+    const walking = talk.walking.has(id);
+    s.amp += ((walking ? 1 : 0) - s.amp) * Math.min(1, dt * 6);
+    s.bob += dt * (walking ? 8.4 : 1.6);
+    const bobY = Math.abs(Math.sin(s.bob)) * 0.045 * s.amp + Math.sin(s.bob * 0.5) * 0.006 * (1 - s.amp);
+    const sway = Math.cos(s.bob) * 0.022 * s.amp;
+    const fx = Math.sin(s.yaw);
+    const fz = Math.cos(s.yaw);
+    const tx = p.x + fx * 0.16 + fz * sway;
+    const tz = p.z + fz * 0.16 - fx * sway;
+    if (!s.ready) {
+      s.ready = true;
+      s.pos.set(tx, EYE, tz);
+    }
+    const k = Math.min(1, dt * 14);
+    s.pos.x += (tx - s.pos.x) * k;
+    s.pos.z += (tz - s.pos.z) * k;
+    camera.position.set(s.pos.x, EYE + bobY, s.pos.z);
+    camera.rotation.order = "YXZ";
+    camera.rotation.set(L.pitch + Math.sin(s.bob * 2) * 0.004 * s.amp, s.yaw + L.yaw + Math.PI, sway * 0.35);
+    const label = talk.doing.get(id)?.label ?? "";
+    if (label !== s.label) cb.current?.((s.label = label));
+  });
+  return null;
+}
+
+export function TownScene({
+  colony,
+  picked = null,
+  onPick,
+  pov = null,
+  onPovDoing,
+}: {
+  colony: ColonyDTO;
+  picked?: string | null;
+  onPick?: (id: string | null) => void;
+  /** resident whose eyes the viewer is looking through (first-person view), or null for the overhead view */
+  pov?: string | null;
+  onPovDoing?: (label: string) => void;
+}) {
   const structs = useMemo(() => layout(colony), [colony]);
   const lit = colony.color.toLowerCase() === "#2f2a28" ? "#ffd24d" : colony.color;
   const residents = useMemo(() => colony.members.slice(0, 10), [colony.members]);
-  const talk = useMemo<Talk>(() => ({ pos: new Map(), say: new Map() }), []);
+  const talk = useMemo<Talk>(() => ({ pos: new Map(), say: new Map(), settled: new Set(), doing: new Map(), rot: new Map(), walking: new Set() }), []);
+  // tonight's singer and today's spar pairs (who stands where in the ring)
+  const ctx = useMemo(() => {
+    const pairs = new Map<string, { slot: number; left: boolean; foe: string }>();
+    let slot = 0;
+    for (const m of residents) {
+      const t = colony.sim.realm?.residents[m.id]?.today;
+      if (!t || pairs.has(m.id) || !residents.some((x) => x.id === t.with)) continue;
+      pairs.set(m.id, { slot, left: true, foe: t.with });
+      pairs.set(t.with, { slot, left: false, foe: m.id });
+      slot += 1;
+    }
+    return { singer: pickSinger(colony), pairs };
+  }, [colony, residents]);
+  const povId = pov && residents.some((m) => m.id === pov) ? pov : null;
   return (
     <Canvas shadows="soft" dpr={[1, 1.6]} camera={{ position: [8.2, 15.2, 37], fov: 46, near: 0.1, far: 400 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }} onPointerMissed={() => onPick?.(null)}>
       <color attach="background" args={["#c9a586"]} />
@@ -1128,12 +1627,14 @@ export function TownScene({ colony, picked = null, onPick }: { colony: ColonyDTO
       </Suspense>
       <Creations list={colony.sim.realm?.creations} onPick={(id) => onPick?.(id)} />
       {residents.map((m, i) => (
-        <Resident key={m.id} m={m} index={i} structs={structs} talk={talk} realm={colony.sim.realm} picked={picked === m.id} onPick={onPick} />
+        <Resident key={m.id} m={m} index={i} colony={colony} structs={structs} talk={talk} ctx={ctx} picked={picked === m.id} onPick={onPick} pov={povId === m.id} />
       ))}
-      <Chatter colony={colony} residents={residents} talk={talk} />
-      <Rig />
+      <Chatter colony={colony} residents={residents} talk={talk} ctx={ctx} />
+      <Campfire />
+      <Townsfolk structs={structs} colony={colony} />
+      {povId ? <PovCamera key={povId} id={povId} talk={talk} onDoing={onPovDoing} /> : <Rig />}
       <PauseOffscreen />
-      <OrbitControls target={[0, 2.6, -10]} enablePan={false} minDistance={10} maxDistance={60} maxPolarAngle={1.5} minPolarAngle={0.5} enableDamping dampingFactor={0.08} />
+      {!povId && <OrbitControls target={[0, 2.6, -10]} enablePan={false} minDistance={10} maxDistance={60} maxPolarAngle={1.5} minPolarAngle={0.5} enableDamping dampingFactor={0.08} />}
       <EffectComposer multisampling={0}>
         <N8AO aoRadius={1.2} distanceFalloff={1} intensity={2.2} quality="low" halfRes />
         <Bloom mipmapBlur luminanceThreshold={0.9} luminanceSmoothing={0.2} intensity={0.45} />

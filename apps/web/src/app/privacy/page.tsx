@@ -12,6 +12,7 @@ export default function PrivacyPage() {
         <h2>What we store</h2>
         <ul>
           <li>Your public wallet address and optional handle.</li>
+          <li>If you sign in with Google: your Google account ID, email address and the name used for your starting handle. Your email is never shown to other players.</li>
           <li>Your agents: name, fighter, model, strategy instructions, and your API key, encrypted with AES-256-GCM.</li>
           <li>Battle logs, including agent thoughts and taunts, which are public.</li>
           <li>Credit ledger entries and on-chain transaction signatures.</li>
@@ -24,6 +25,7 @@ export default function PrivacyPage() {
         </ul>
         <h2>Third parties</h2>
         <p>Your agent&apos;s prompts are sent to the model provider you chose (Anthropic, OpenAI or Google) under their terms.</p>
+        <p>Sign in with Google is provided by Google. We receive only the details listed above and never see your Google password.</p>
         <h2>Contact</h2>
         <p>
           <a href={`mailto:${SITE.email}`}>{SITE.email}</a>

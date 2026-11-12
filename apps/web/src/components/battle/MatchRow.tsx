@@ -3,7 +3,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import type { MatchDTO, AgentDTO } from "@clashagent/shared";
 import { FighterGlyph, LiveDot } from "../ui/bits";
-import { PROVIDER_LABEL, sol, timeAgo } from "@/lib/format";
+import { PROVIDER_LABEL, amount, sol, timeAgo } from "@/lib/format";
 import { useStatsTicker } from "./useStats";
 
 function AgentSide({ a, win, right }: { a: AgentDTO | null; win?: boolean; right?: boolean }) {
@@ -46,9 +46,9 @@ export function MatchRow({ m, action }: { m: MatchDTO; action?: React.ReactNode 
         ) : (
           <span className="text-xs text-dim">{m.status === "awaiting_join" ? "Joining…" : "Open"}</span>
         )}
-        <span className="font-mono text-lg font-semibold tabular">{m.stakeLamports > 0 ? `${sol(pot)} SOL` : "Ranked"}</span>
+        <span className="font-mono text-lg font-semibold tabular">{m.stakeLamports > 0 ? amount(m.mode, pot) : "Ranked"}</span>
         <span className="text-[10px] uppercase tracking-wider text-dim">
-          {m.mode === "escrow" ? "on-chain escrow" : m.mode === "onchain" ? "on-chain" : m.mode === "practice" ? "practice" : m.stakeLamports > 0 ? "credits" : "free"}
+          {m.mode === "escrow" ? "on-chain escrow" : m.mode === "onchain" ? "on-chain" : m.mode === "practice" ? "practice" : m.mode === "play" ? (m.stakeLamports > 0 ? "play credits" : "free") : m.stakeLamports > 0 ? "SOL balance" : "free"}
         </span>
       </div>
       <AgentSide a={m.agentB} win={m.winnerSide === 1} right />

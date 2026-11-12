@@ -11,7 +11,12 @@ import { useConfig } from "@/lib/hooks";
 import { BattleStage } from "./BattleStage";
 import { stageForSeed } from "../three/stages/meta";
 import { FighterGlyph, LiveDot } from "../ui/bits";
-import { PROVIDER_LABEL, explorerAddr, explorerTx, shortAddr, sol } from "@/lib/format";
+import { PROVIDER_LABEL, amount, explorerAddr, explorerTx, shortAddr, sol } from "@/lib/format";
+
+function mergeTurns(prev: TurnDTO[], incoming: TurnDTO[]): TurnDTO[] {
+  const fresh = incoming.filter((t) => !prev.some((p) => p.turn === t.turn));
+  return fresh.length ? [...prev, ...fresh].sort((a, b) => a.turn - b.turn) : prev;
+}
 
 export function BattleView({ id, initial }: { id: string; initial: MatchDTO | null }) {
   const { data, mutate } = useSWR<{ match: MatchDTO }>(`/matches/${id}`, { fallbackData: initial ? { match: initial } : undefined });
@@ -24,18 +29,30 @@ export function BattleView({ id, initial }: { id: string; initial: MatchDTO | nu
   const [shownTurn, setShownTurn] = useState(0);
   const { config } = useConfig();
 
+  // The server is the only source of truth. Turns arrive live over the socket and are also
+  // fetched from the API; both are merged by turn number, so a turn can never be shown twice,
+  // out of order, or skipped, whichever arrives first.
   useEffect(() => {
-    if (data?.match.turns && data.match.turns.length > turns.length) setTurns(data.match.turns);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const fetched = data?.match.turns;
+    if (fetched?.length) setTurns((prev) => mergeTurns(prev, fetched));
   }, [data]);
 
   useEffect(() => {
-    const s = io(API_URL, { transports: ["websocket"] });
-    s.on("connect", () => s.emit("watch", id));
+    const s = io(API_URL, { transports: ["websocket", "polling"] });
+    // Runs on the first connection and after every reconnect: rejoin the room, then fetch
+    // whatever was played while we were away (the room is joined first, so nothing falls in between).
+    s.on("connect", () => {
+      s.emit("watch", id);
+      mutate();
+    });
     s.on("thinking", () => setThinking(true));
     s.on("turn", (t: TurnDTO) => {
       setThinking(false);
-      setTurns((prev) => (prev.some((p) => p.turn === t.turn) ? prev : [...prev, t].sort((a, b) => a.turn - b.turn)));
+      setTurns((prev) => {
+        // A gap means we missed a turn (brief network drop): ask the server for the full record.
+        if (t.turn > (prev[prev.length - 1]?.turn ?? 0) + 1) mutate();
+        return mergeTurns(prev, [t]);
+      });
     });
     s.on("spectators", (n: number) => setSpectators(n));
     s.on("match:update", () => mutate());
@@ -57,7 +74,7 @@ export function BattleView({ id, initial }: { id: string; initial: MatchDTO | nu
       <div className="mx-auto max-w-xl py-24 text-center">
         <div className="text-2xl font-medium">Waiting for a challenger</div>
         <p className="mt-3 text-muted">
-          {match.agentA?.name} is in the lobby with a {match.stakeLamports > 0 ? `${sol(match.stakeLamports)} SOL` : "free"} challenge.
+          {match.agentA?.name} is in the lobby with a {match.stakeLamports > 0 ? amount(match.mode, match.stakeLamports) : "free"} challenge.
         </p>
         <Link href="/arena" className="mt-8 inline-block rounded-[10px] bg-white px-5 py-2.5 text-sm font-medium text-[#111]">
           Back to the lobby
@@ -90,7 +107,7 @@ export function BattleView({ id, initial }: { id: string; initial: MatchDTO | nu
             <span className="rounded-full border border-line px-3 py-1 text-muted">{match.status === "finished" ? "Final" : match.status}</span>
           )}
           <span className="text-muted">
-            {match.mode === "practice" ? "Practice spar" : match.stakeLamports > 0 ? `Pot ${sol(match.stakeLamports * 2)} SOL` : "Ranked · free"}
+            {match.mode === "practice" ? "Practice spar" : match.stakeLamports > 0 ? `Pot ${amount(match.mode, match.stakeLamports * 2)}` : "Ranked · free"}
             {match.mode === "escrow" && " · on-chain escrow"}
             {match.mode === "onchain" && " · paid on-chain"}
           </span>
@@ -178,8 +195,8 @@ export function BattleView({ id, initial }: { id: string; initial: MatchDTO | nu
         })}
         <div className="card space-y-4 p-5 text-sm">
           <div className="text-xs uppercase tracking-wider text-dim">Match details</div>
-          <Row k="Mode" v={match.mode === "escrow" ? "On-chain escrow" : match.mode === "onchain" ? "On-chain (wallet to wallet)" : match.mode === "credits" ? "Credits" : "Practice"} />
-          <Row k="Stake" v={match.stakeLamports > 0 ? `${sol(match.stakeLamports)} SOL each` : "None"} />
+          <Row k="Mode" v={match.mode === "escrow" ? "On-chain escrow" : match.mode === "onchain" ? "On-chain (wallet to wallet)" : match.mode === "credits" ? "SOL balance (held by AgentsWar)" : match.mode === "play" ? "Play credits" : "Practice"} />
+          <Row k="Stake" v={match.stakeLamports > 0 ? `${amount(match.mode, match.stakeLamports)} each` : "None"} />
           <Row k="Fee" v={`${match.feeBps / 100}%`} />
           <Row k="Turns" v={`${turns.length}`} />
           <Row k="Result" v={match.winnerSide === null ? "—" : match.winnerSide === -1 ? "Draw" : `${names[match.winnerSide as Side]} (${match.endReason})`} />

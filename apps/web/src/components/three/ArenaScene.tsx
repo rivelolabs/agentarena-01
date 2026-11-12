@@ -115,8 +115,8 @@ function EnergyShot({ p }: { p: Projectile }) {
       const k = 1 - Math.min(1, Math.max(0, t / 0.32));
       muzzle.current.visible = t >= -0.05 && k > 0;
       muzzle.current.position.copy(p.origin);
-      muzzle.current.scale.setScalar(size * (0.7 + (1 - k) * 2.4));
-      muzzle.current.material.opacity = k;
+      muzzle.current.scale.setScalar(size * (0.45 + (1 - k) * 0.9));
+      muzzle.current.material.opacity = k * 0.7;
     }
     bolt.visible = lightning && live;
     if (bolt.visible) {
@@ -384,13 +384,14 @@ function SparkBurst({ sp }: { sp: Spark }) {
     const t = now() - sp.at;
     const [x, y0, z0] = sp.pos;
     const big = sp.big ? 1.5 : 1;
-    m.visible = t < 0.7;
+    m.visible = t < 0.4;
     SPARK_DIRS.forEach((d, i) => {
-      const r = (sp.big ? 2.4 : 1.4) * (1 - Math.pow(1 - Math.min(1, t / 0.5), 3));
+      // a tight burst that stays at the point of contact
+      const r = (sp.big ? 1.0 : 0.6) * (1 - Math.pow(1 - Math.min(1, t / 0.32), 3));
       dummy.position.set(x + d.x * r, y0 + d.y * r - t * t * 2.4, z0 + d.z * r);
       dummy.lookAt(x + d.x * (r + 1), y0 + d.y * (r + 1) - t * t * 2.4 - t * 0.8, z0 + d.z * (r + 1));
-      const k = Math.max(0, 1 - t / 0.6);
-      dummy.scale.set(k * big, k * big, (0.6 + k * 2.2) * big);
+      const k = Math.max(0, 1 - t / 0.36);
+      dummy.scale.set(k * big * 0.8, k * big * 0.8, (0.4 + k * 1.3) * big);
       dummy.updateMatrix();
       m.setMatrixAt(i, dummy.matrix);
     });
@@ -399,8 +400,9 @@ function SparkBurst({ sp }: { sp: Spark }) {
       const k = Math.max(0, 1 - t / 0.22);
       flash.current.visible = k > 0;
       flash.current.position.set(x, y0, z0 + 0.3);
-      flash.current.scale.setScalar((1.2 + (1 - k) * 2.4) * big);
-      flash.current.material.opacity = k;
+      // a small hot point at the contact, not a screen-filling glow
+      flash.current.scale.setScalar((0.45 + (1 - k) * 0.65) * big);
+      flash.current.material.opacity = k * 0.6;
     }
     if (ring.current) {
       const k = Math.min(1, t / 0.4);
@@ -567,9 +569,11 @@ function CameraRig({ intro }: { intro: boolean }) {
     const it = intro ? Math.min(1, (T - start.current) / 2.8) : 1;
     const e = 1 - Math.pow(1 - it, 3);
     const shakeT = T - st.shakeAt;
-    const sh = shakeT < 0.35 ? (1 - shakeT / 0.35) * st.shakeAmp : 0;
-    const jx = (Math.random() - 0.5) * sh;
-    const jy = (Math.random() - 0.5) * sh;
+    // A hit kicks the camera once and it settles like a spring. (Random jitter every frame made
+    // the bright parts of the background jump around, which read as flicker.)
+    const sh = shakeT >= 0 && shakeT < 0.7 ? Math.min(0.14, st.shakeAmp * 0.3) * Math.exp(-shakeT * 8) : 0;
+    const jx = Math.sin(shakeT * 34) * sh;
+    const jy = Math.cos(shakeT * 27 + 0.6) * sh * 0.7;
     // Cinematic close-up (supers, chains, K.O.): blend towards a low shot of the focused fighter.
     let cineK = 0;
     let cx = 0;
@@ -578,7 +582,8 @@ function CameraRig({ intro }: { intro: boolean }) {
     if (st.cine) {
       const ct = (T - st.cine.at) / st.cine.dur;
       if (ct >= 0 && ct <= 1) {
-        cineK = ct < 0.2 ? ct / 0.2 : ct > 0.75 ? (1 - ct) / 0.25 : 1;
+        const easeIn = st.cine.kind === "power" ? Math.min(0.2, 0.3 / st.cine.dur) : 0.2;
+        cineK = ct < easeIn ? ct / easeIn : ct > 0.75 ? (1 - ct) / 0.25 : 1;
         cineK = cineK * cineK * (3 - 2 * cineK);
         // track the real body: launched fighters are followed into the air and along the floor
         const a = st.anchors[st.cine.side];
@@ -587,6 +592,12 @@ function CameraRig({ intro }: { intro: boolean }) {
           cy = Math.min(3.6, Math.max(0.9, a.chest.y + 0.1));
           cz = a.chest.z;
         } else cx = fighterX(st.cine.side, d);
+        // Power finishes are a two-person composition, including the airborne arc and landing.
+        if (st.cine.kind === "power" && a0.valid && a1.valid) {
+          cx = (a0.chest.x + a1.chest.x) / 2;
+          cy = Math.max(0.7, Math.min(3.3, (a0.chest.y + a1.chest.y) / 2));
+          cz = (a0.chest.z + a1.chest.z) / 2;
+        }
       }
     }
     if (st.theme !== "neon") {
@@ -606,10 +617,12 @@ function CameraRig({ intro }: { intro: boolean }) {
       const side = st.cine!.side;
       const outward = side === 0 ? -1 : 1;
       const xr = st.cine!.kind === "xray";
+      const power = st.cine!.kind === "power";
+      const powerDistance = Math.max(4.8, Math.abs(a0.chest.x - a1.chest.x) * 0.75 + 3) * fit;
       const tx = cx + outward * (xr ? 0.55 : 0.9) + Math.sin(T * 0.8) * 0.15;
       camera.position.x += (tx - camera.position.x) * cineK;
-      camera.position.y += (cy - 0.1 - camera.position.y) * cineK;
-      camera.position.z += (cz + (xr ? 2.3 : 3.4) - camera.position.z) * cineK;
+      camera.position.y += (cy + (power ? 0.5 : -0.1) - camera.position.y) * cineK;
+      camera.position.z += (cz + (power ? powerDistance : xr ? 2.3 : 3.4) - camera.position.z) * cineK;
       look.x += (cx - look.x) * cineK;
       look.y += (cy - look.y) * cineK;
       look.z += (cz - look.z) * cineK;

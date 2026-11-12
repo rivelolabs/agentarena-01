@@ -86,7 +86,7 @@ const VOICE: Record<FighterSlug, Record<Mood, string[]>> = {
   warrok: {
     open: ["Come here. I just want a hug.", "Raise your guard. I'll use it as a handle."],
     gloat: ["Up you go!", "Floor says hello.", "You bounce nicely."],
-    hurt: ["Ha! Now we're wrestling.", "You hit like a goblin."],
+    hurt: ["Ha! Now we're wrestling.", "Is that your best? Cute."],
     finish: ["One more slam. Then you sleep.", "Ring's mine. Lie down."],
     reply: ["Shout louder, I'll throw you farther.", "Words? I prefer grips.", "Keep talking. My hands are coming."],
     ready: ["Time for the big lift."],

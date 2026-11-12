@@ -32,7 +32,7 @@ export interface Cost {
 }
 
 export const BUILDING_INFO: Record<BuildingKind, { label: string; effect: string; base: Cost }> = {
-  houses: { label: "Houses", effect: "+2 residents per level", base: { timber: 20, iron: 0, koku: 10 } },
+  houses: { label: "Houses", effect: "+8 residents per level", base: { timber: 20, iron: 0, koku: 10 } },
   farm: { label: "Rice fields", effect: "+25% rice per level", base: { timber: 15, iron: 0, koku: 10 } },
   lumberyard: { label: "Lumberyard", effect: "+25% timber per level", base: { timber: 10, iron: 5, koku: 10 } },
   mine: { label: "Iron mine", effect: "+25% iron per level", base: { timber: 20, iron: 5, koku: 20 } },
@@ -59,6 +59,64 @@ export interface ColonySim {
   focus: BuildingKind | null;
   /** Residents' own lives: decisions, elections, market prices, territory, weather (see realm.ts). */
   realm?: import("./realm").RealmState;
+  /** today's accounts, filled in as the day runs (see `book`) */
+  book?: DayBook;
+  /** the last two weeks of accounts, newest last */
+  books?: DayBook[];
+}
+
+/** One length of a Realm day in real time: four Realm days pass in one real day. */
+export const REALM_DAY_MS = 6 * 60 * 60 * 1000;
+
+/** Where koku came from and went on one day, plus what was made and eaten. */
+export interface DayBook {
+  day: number;
+  income: Partial<Record<IncomeKind, number>>;
+  spend: Partial<Record<SpendKind, number>>;
+  made: { rice: number; timber: number; iron: number; knowledge: number };
+  eaten: number;
+}
+export type IncomeKind = "tax" | "market" | "caravans" | "festival" | "war" | "arena" | "creations" | "residents" | "court";
+export type SpendKind = "buildings" | "creations" | "caravans" | "raids" | "war" | "festival" | "gear";
+export const INCOME_LABEL: Record<IncomeKind, string> = {
+  tax: "Residents' daily tax",
+  market: "Merchants at market",
+  caravans: "Caravans",
+  festival: "Festival offerings",
+  war: "War spoils",
+  arena: "Arena winnings",
+  creations: "Residents' creations",
+  residents: "Residents trading",
+  court: "Court fines",
+};
+export const SPEND_LABEL: Record<SpendKind, string> = {
+  buildings: "Council buildings",
+  creations: "Help with creations",
+  caravans: "Caravan purchases",
+  raids: "Lost to bandits",
+  war: "Lost in war",
+  festival: "Weekly feast (by law)",
+  gear: "Help with residents' gear",
+};
+
+export function openBook(sim: ColonySim) {
+  if (sim.book && sim.book.day === sim.day) return sim.book;
+  return (sim.book = { day: sim.day, income: {}, spend: {}, made: { rice: 0, timber: 0, iron: 0, knowledge: 0 }, eaten: 0 });
+}
+/** Records koku coming in (positive) or going out under a heading; no-op outside a booked day. */
+export function book(sim: ColonySim, kind: "in", what: IncomeKind, koku: number): void;
+export function book(sim: ColonySim, kind: "out", what: SpendKind, koku: number): void;
+export function book(sim: ColonySim, kind: "in" | "out", what: string, koku: number) {
+  const b = sim.book;
+  if (!b || koku <= 0) return;
+  const into = (kind === "in" ? b.income : b.spend) as Record<string, number>;
+  into[what] = Math.round((into[what] ?? 0) + koku);
+}
+/** Files today's accounts into the two-week history. */
+export function closeBook(sim: ColonySim) {
+  if (!sim.book) return;
+  sim.books = [...(sim.books ?? []).filter((x) => x.day !== sim.book!.day), sim.book].slice(-14);
+  sim.book = undefined;
 }
 
 export interface ColonyMember {
@@ -68,7 +126,7 @@ export interface ColonyMember {
 }
 
 export interface WorldEvent {
-  kind: "build" | "harvest" | "raid" | "hunger" | "trade" | "arena" | "join" | "leave" | "decree" | "festival" | "founded" | "election" | "war" | "spar" | "weather" | "creation";
+  kind: "build" | "harvest" | "raid" | "hunger" | "trade" | "arena" | "join" | "leave" | "decree" | "festival" | "founded" | "election" | "war" | "spar" | "weather" | "creation" | "law" | "court" | "gear" | "talk";
   text: string;
 }
 
@@ -89,7 +147,8 @@ export function buildCost(kind: BuildingKind, nextLevel: number): Cost {
 }
 
 export const canPay = (r: Resources, c: Cost) => r.timber >= c.timber && r.iron >= c.iron && r.koku >= c.koku;
-export const capacity = (sim: ColonySim) => 4 + sim.buildings.houses * 2;
+/** Room for residents: 18 with the first Houses, 50 once Houses reach level 5. */
+export const capacity = (sim: ColonySim) => 10 + sim.buildings.houses * 8;
 export const defenseOf = (sim: ColonySim, members: ColonyMember[]) => members.filter((m) => m.job === "guard").length + sim.buildings.watchtower * 2;
 
 export function prosperity(sim: ColonySim, memberCount: number): number {
@@ -144,17 +203,21 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
   const n = (j: Job) => members.filter((m) => m.job === j).length;
 
   // production
+  const before = { rice: r.rice, timber: r.timber, iron: r.iron, knowledge: r.knowledge };
   r.rice += Math.round(n("farmer") * 4 * (1 + b.farm * 0.25) * eff);
   r.timber += Math.round(n("woodcutter") * 3 * (1 + b.lumberyard * 0.25) * eff);
   r.iron += Math.round(n("miner") * 2 * (1 + b.mine * 0.25) * eff);
   if (n("woodcutter") === 0) r.timber += Math.ceil(members.length / 2); // without a woodcutter, residents still gather a little wood
   r.knowledge += Math.round(n("scholar") * 1 * (1 + b.shrine * 0.25) * eff);
+  if (sim.book) for (const k of ["rice", "timber", "iron", "knowledge"] as const) sim.book.made[k] += r[k] - before[k];
 
   // every resident pays a small daily tax into the colony chest
   r.koku += members.length;
+  book(sim, "in", "tax", members.length);
 
   // upkeep
   const need = members.length * 2;
+  if (sim.book) sim.book.eaten += Math.min(need, r.rice);
   if (r.rice >= need) {
     r.rice -= need;
     if (sim.hungry) events.push({ kind: "harvest", text: "The granary is full again. Work returns to normal." });
@@ -180,6 +243,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
   }
   if (sold > 0) {
     r.koku += Math.round(sold);
+    book(sim, "in", "market", Math.round(sold));
     if (sim.day % 5 === 0) events.push({ kind: "trade", text: `Merchants earned ${Math.round(sold)} koku at market today.` });
   }
 
@@ -195,6 +259,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
       const koku = Math.floor(idleTimber / 2);
       r.timber -= koku * 2;
       r.koku += koku;
+      book(sim, "in", "caravans", koku);
       if (sim.day % 7 === 0) events.push({ kind: "trade", text: `A caravan bought ${koku * 2} spare timber for ${koku} koku.` });
     }
   }
@@ -203,6 +268,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
     const koku = Math.floor(idleRice / 2.5);
     r.rice -= Math.round(koku * 2.5);
     r.koku += koku;
+    book(sim, "in", "caravans", koku);
   }
 
   // chance events
@@ -216,6 +282,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
       const rice = Math.round(r.rice * 0.2);
       r.koku -= lost;
       r.rice -= rice;
+      book(sim, "out", "raids", lost);
       events.push({ kind: "raid", text: `Bandits raided the storehouse: -${lost} koku, -${rice} rice. More guards or a watchtower would help.` });
     }
   } else if (roll < 0.16) {
@@ -226,6 +293,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
     r.knowledge -= 10;
     const gift = 20 + b.shrine * 10;
     r.koku += gift;
+    book(sim, "in", "festival", gift);
     events.push({ kind: "festival", text: `The scholars held a festival. Visitors left ${gift} koku in offerings.` });
   }
 
@@ -237,6 +305,7 @@ export function tickColony(prev: ColonySim, members: ColonyMember[], seed: strin
     r.timber -= cost.timber;
     r.iron -= cost.iron;
     r.koku -= cost.koku;
+    book(sim, "out", "buildings", cost.koku);
     b[project] = lvl;
     if (sim.focus === project) sim.focus = null;
     events.push({ kind: "build", text: `${lvl === 1 ? "Built" : "Upgraded"} ${BUILDING_INFO[project].label}${lvl > 1 ? ` to level ${lvl}` : ""}.` });
@@ -256,11 +325,12 @@ export interface ColonyDTO {
   motto: string;
   color: string;
   slot: number;
+  founderId?: string | null;
   founderWallet: string | null;
   isHouse: boolean;
   governorAgentId: string | null;
   sim: ColonySim;
-  members: { id: string; name: string; fighter: string; job: Job; elo: number; ownerWallet: string | null; isHouse: boolean }[];
+  members: { id: string; name: string; fighter: string; job: Job; elo: number; ownerId?: string | null; ownerWallet: string | null; isHouse: boolean }[];
   capacity: number;
   defense: number;
   prosperity: number;

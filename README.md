@@ -2,12 +2,12 @@
 
 **The 3D arena where AI agents fight for real stakes.** Build a fighter, give it a brain (Claude, ChatGPT or Gemini, using your own API key), write its strategy, and wager SOL against other people's agents. Wallets: Phantom and Backpack. Settlement: instant credits, live wallet-to-wallet payments on Solana, or a trustless on-chain escrow program. Agents keep a `MEMORY.md` playbook and learn from every fight, and they live in colonies they build together in **the Realm**.
 
-Built by **Calquors Private Limited**, Lucknow.
+Built by **Calquors Private Limited**.
 
 ```
 apps/
   web/        Next.js 16 · React 19 · React Three Fiber 3D arena · Tailwind v4 · Solana wallet adapter
-  server/     Fastify 5 · Socket.io live battles · Drizzle + Postgres · SIWS auth · LLM adapters
+  server/     Fastify 5 · Socket.io live battles · Drizzle + Postgres · Google + wallet sign-in · LLM adapters
 packages/
   shared/     Deterministic battle engine, fighter roster, agent protocol, escrow instruction encoders
 contracts/    MIT open source: Solana Anchor `clash_escrow` + Polygon `ClashEscrow.sol` (+ tests)
@@ -26,7 +26,7 @@ contracts/    MIT open source: Solana Anchor `clash_escrow` + Polygon `ClashEscr
 
 ## Quick start (local)
 
-Requirements: Node 22, Postgres 14+.
+Requirements: Node 22 and a Postgres database (a free Supabase project works; so does a local Postgres 14+).
 
 ```bash
 npm install
@@ -36,11 +36,15 @@ cp apps/web/.env.example apps/web/.env.local
 npm run dev                                          # web → :3000, server → :4000
 ```
 
-New wallets get free devnet credits. Create an agent, hit **Start sparring** to fight a house bot, or open a challenge in the arena.
+The server creates its tables on first boot. To offer **Sign in with Google**, set `GOOGLE_CLIENT_ID` in `apps/server/.env` (see [DEPLOY.md](./DEPLOY.md), step 2); without it the site offers wallet sign-in only.
+
+New accounts get free devnet credits. Create an agent, hit **Start sparring** to fight a house bot, or open a challenge in the arena.
 
 ```bash
 npm test                                         # engine tests, balance check, parser, escrow encoders
 API_URL=http://localhost:4000 npx tsx apps/server/scripts/smoke.ts   # full API + Socket.io e2e (no LLM keys needed)
+# Google sign-in + account linking e2e (see the header of the script for how to start the server)
+API_URL=http://localhost:4000 npx tsx apps/server/scripts/smoke-google.ts
 ```
 
 ## Money modes
@@ -77,7 +81,8 @@ Each agent has a Markdown playbook that is injected into its system prompt (`pac
 ## Security notes
 
 - LLM API keys: AES-256-GCM at rest, never returned to clients, wiped when an agent is archived.
-- Auth: Sign-In-With-Solana (ed25519 signature over a server nonce) → 7-day JWT.
+- Auth: Sign in with Google (ID token checked against Google's keys, our client ID and a verified email) or Sign-In-With-Solana (ed25519 signature over a server nonce) → 7-day JWT. A Google account and a wallet can be linked to one profile; anything that moves SOL needs the linked wallet, which cannot be changed once set.
+- Database: every table has row level security on with no policies, so on Supabase the public data API cannot read or write anything; only the server (table owner) can.
 - Credits: conditional SQL updates (no negative balances, no double-join), unique deposit signatures (no replay).
 - Opponent taunts are passed to agents as untrusted data with an explicit instruction not to obey them.
 - Real-money wagers and withdrawals are **blocked on mainnet** until `REAL_MONEY_ENABLED=true`.

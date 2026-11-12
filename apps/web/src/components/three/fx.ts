@@ -30,7 +30,7 @@ export const ELEMENTS: Record<FighterSlug, Element> = {
   glitch: { name: "Plasma", c1: "#ff2bd6", c2: "#ffd6f8", speed: 3.4, twist: 3, streak: 1.4, grain: 1.4 },
   kaiju: { name: "Poison", c1: "#84ff2e", c2: "#eaffa8", speed: 1.0, twist: 0.6, streak: 0.3, grain: 1.2 },
   oracle: { name: "Water", c1: "#2f8cff", c2: "#c8ecff", speed: -1.7, twist: 1.6, streak: 0.25, grain: 0.6 },
-  warrok: { name: "Iron", c1: "#d9a45a", c2: "#fff1d0", speed: 0.7, twist: 0, streak: 0.2, grain: 0.8 },
+  warrok: { name: "Gold", c1: "#f2c230", c2: "#fff3c4", speed: 0.7, twist: 0, streak: 0.2, grain: 0.8 },
   noctis: { name: "Blood", c1: "#d1122c", c2: "#ffa0ac", speed: -1.1, twist: -1.2, streak: 0.4, grain: 1.1 },
   akai: { name: "Storm", c1: "#ff8a1f", c2: "#fff0c8", speed: 2.2, twist: 4.5, streak: 1.6, grain: 0.9 },
 };
@@ -89,8 +89,8 @@ export function shieldMaterial(color: string, cells = 14) {
           float ripple = 0.5 + 0.5 * sin(vP.y * 9.0 - uTime * 6.0);
           float flow = fbm(vUv * 6.0 + vec2(0.0, -uTime * 0.6));
           float a = fres * 1.25 + cell * (0.22 + 0.35 * flow) + ripple * 0.06 + flow * 0.08;
-          a *= 0.85 + 0.15 * sin(uTime * 23.0);
-          vec3 col = mix(uColor, vec3(1.0), clamp(fres * 0.75 + cell * 0.35, 0.0, 1.0));
+          // steady glow in the fighter's own colour (no strobing, no white-out)
+          vec3 col = mix(uColor, vec3(1.0), clamp(fres * 0.3 + cell * 0.12, 0.0, 0.5));
           gl_FragColor = vec4(col * a, a) * clamp(uOpacity * 3.6, 0.0, 1.4);
         }`,
       transparent: true,
@@ -130,9 +130,9 @@ export function auraMaterial(el: Element) {
           float body = smoothstep(0.32 + h * 0.5, 0.95, n + (1.0 - h) * 0.45);
           float streak = pow(noise(vec2(x * 4.5, h * 2.0 - uTime * uSpeed * 2.0)), 6.0) * (1.0 - h * 0.6) * uStreak;
           // thin branching arcs (strong only for lightning-like elements)
-          float arc = smoothstep(0.035, 0.0, abs(fract(vUv.x * 5.0 + fbm(vec2(h * 6.0, floor(uTime * 14.0))) * 0.6) - 0.5)) * step(2.5, uStreak);
+          float arc = smoothstep(0.035, 0.0, abs(fract(vUv.x * 5.0 + fbm(vec2(h * 6.0, uTime * 2.2)) * 0.6) - 0.5)) * step(2.5, uStreak);
           float edge = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.3);
-          float a = (body * 0.9 + streak * 1.3 + arc * 1.6) * (0.35 + edge) * smoothstep(1.0, 0.75, h) * smoothstep(0.0, 0.06, h);
+          float a = (body * 0.9 + streak * 1.0 + arc * 0.9) * (0.35 + edge) * smoothstep(1.0, 0.75, h) * smoothstep(0.0, 0.06, h);
           vec3 col = mix(uColor, uHot, clamp(body * 0.6 + streak + arc, 0.0, 1.0));
           gl_FragColor = vec4(col * a, a) * clamp(uOpacity * 4.2, 0.0, 1.5);
         }`,

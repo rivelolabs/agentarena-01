@@ -2,7 +2,7 @@
   "name": "clashagent",
   "private": true,
   "version": "0.1.0",
-  "description": "ClashAgent — the 3D arena where AI agents fight for on-chain stakes.",
+  "description": "ClashAgent \u2014 the 3D arena where AI agents fight for on-chain stakes.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -17,12 +17,14 @@
     "build:web": "npm run build -w @clashagent/web",
     "start:server": "npm run start -w @clashagent/server",
     "start:web": "npm run start -w @clashagent/web",
-    "test": "npm test -w @clashagent/shared && npm test -w @clashagent/server",
+    "test": "npm test -w @clashagent/shared && npm test -w @clashagent/server && npm run test:combat",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "db:generate": "npm run db:generate -w @clashagent/server"
+    "db:generate": "npm run db:generate -w @clashagent/server",
+    "test:combat": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test apps/web/src/components/battle/powerFinishers.test.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
   }
 }

@@ -24,7 +24,9 @@ export type MoveKind =
   | "roll"
   | "dashIn"
   | "glideIn"
+  | "connect"
   | "glideBack"
+  | "slideZ"
   // reactions
   | "recoil"
   | "guardPush"
@@ -76,7 +78,9 @@ export const MOVE_DUR: Record<MoveKind, number> = {
   roll: 0.7,
   dashIn: 0.35,
   glideIn: 1.0,
+  connect: 0.9,
   glideBack: 1.2,
+  slideZ: 1.0,
   recoil: 0.35,
   guardPush: 0.45,
   knockback: 0.8,
@@ -118,7 +122,7 @@ const outBack = (k: number, a: number, b: number, c: number, d: number) => (k < 
  * @param dur   move duration in seconds
  * @param gap   current distance between the two fighters' home spots (scene units)
  */
-export function movePose(kind: MoveKind, t: number, dur: number, gap: number): Pose {
+export function movePose(kind: MoveKind, t: number, dur: number, gap: number, opts?: { adv?: number; hitT?: number }): Pose {
   const k = clamp01(t / Math.max(0.01, dur));
   const p: Pose = { fwd: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, lie: 0 };
   // where an attacker has to stand to connect (bodies are ~0.9 apart at contact)
@@ -150,11 +154,11 @@ export function movePose(kind: MoveKind, t: number, dur: number, gap: number): P
       break;
     case "crossUp": {
       // leap over with a front flip, land behind, turn, strike from behind, then flip back over
-      const behind = gap + 0.95;
+      const behind = gap + 1.15;
       const a = seg(k, 0, 0.32);
       const c = seg(k, 0.66, 1);
       if (k < 0.66) {
-        p.fwd = behind * ease(a) - 0.32 * arc(seg(k, 0.42, 0.62));
+        p.fwd = behind * ease(a) - 0.15 * arc(seg(k, 0.42, 0.62));
         p.y = 2.15 * arc(a);
         p.pitch = TAU * ease(a);
         p.yaw = Math.PI * ease(seg(k, 0.32, 0.4));
@@ -233,9 +237,25 @@ export function movePose(kind: MoveKind, t: number, dur: number, gap: number): P
     case "dashIn":
       p.fwd = 0;
       break;
+    case "connect": {
+      // Step in exactly far enough for the striking limb to arrive on the target at the moment
+      // the clip connects, hold through the contact, then recover to the stance.
+      const adv = opts?.adv ?? reach;
+      const hit = Math.max(0.05, opts?.hitT ?? dur * 0.4);
+      const hold = 0.1;
+      const tt = k * dur;
+      if (tt < hit) p.fwd = adv * ease(tt / hit);
+      else if (tt < hit + hold) p.fwd = adv;
+      else p.fwd = adv * (1 - ease((tt - hit - hold) / Math.max(0.05, dur - hit - hold)));
+      break;
+    }
     case "glideIn":
       // travel only: the motion-captured clip does the acrobatics
       p.fwd = reach * outBack(k, 0.05, 0.42, 0.62, 1);
+      break;
+    case "slideZ":
+      // sideways out of the line of attack (cartwheel / roll clips do the body motion)
+      p.z = 1.0 * arc(k);
       break;
     case "glideBack":
       p.fwd = -0.9 * outBack(k, 0.05, 0.5, 0.6, 1);
@@ -245,13 +265,13 @@ export function movePose(kind: MoveKind, t: number, dur: number, gap: number): P
       p.pitch = -0.12 * arc(k);
       break;
     case "guardPush":
-      p.fwd = -0.5 * outBack(k, 0, 0.25, 0.5, 1);
-      p.pitch = -0.08 * arc(seg(k, 0, 0.5));
+      p.fwd = -0.28 * outBack(k, 0, 0.25, 0.5, 1);
+      p.pitch = -0.05 * arc(seg(k, 0, 0.5));
       break;
     case "knockback":
-      p.fwd = -1.25 * outBack(k, 0, 0.3, 0.45, 1);
-      p.y = 0.35 * arc(seg(k, 0, 0.4));
-      p.pitch = -0.4 * arc(seg(k, 0, 0.6));
+      // driven back a step by a heavy blow (the reaction clip does the body; this is the ground covered)
+      p.fwd = -0.7 * outBack(k, 0, 0.3, 0.5, 1);
+      p.pitch = -0.1 * arc(seg(k, 0, 0.6));
       break;
     case "launched": {
       const air = seg(k, 0, 0.72);
@@ -270,8 +290,8 @@ export function movePose(kind: MoveKind, t: number, dur: number, gap: number): P
       p.pitch = 0.4 * arc(k);
       break;
     case "stagger":
-      p.fwd = -0.45 * arc(k);
-      p.roll = 0.18 * arc(k);
+      p.fwd = -0.3 * arc(k);
+      p.roll = 0.05 * arc(k);
       break;
     case "koLaunch": {
       const air = seg(k, 0, 0.6);

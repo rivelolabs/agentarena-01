@@ -5,6 +5,16 @@ export function sol(lamports: number, digits = 3) {
   return v.toLocaleString("en-US", { maximumFractionDigits: digits });
 }
 
+/** Free play credits are whole numbers. */
+export function credits(n: number) {
+  return Math.round(n).toLocaleString("en-US");
+}
+
+/** A stake or pot in the right unit: play-credit matches count credits, every other mode counts lamports. */
+export function amount(mode: string, value: number) {
+  return mode === "play" ? `${credits(value)} credits` : `${sol(value)} SOL`;
+}
+
 export function shortAddr(a?: string | null, n = 4) {
   if (!a) return "";
   return `${a.slice(0, n)}…${a.slice(-n)}`;

@@ -12,7 +12,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "zustand";
 import { getFighter, type FighterDef, type Side } from "@clashagent/shared";
-import { fighterX, gapOf, now, useVisStore } from "./store";
+import { GUARD_R, SHIELD_R, fighterX, gapOf, now, useVisStore } from "./store";
 import { InkWarrior } from "./InkWarrior";
 import type { FlashMat } from "./ink";
 
@@ -541,6 +541,9 @@ const CLOTH: Partial<Record<string, { cape?: [number, number, boolean]; tabard?:
 
 // ---------------------------------------------------------------- main
 
+/** Seconds a travelling move takes to cross the floor (so the body arrives as the move lands). */
+const TRAVEL: Partial<Record<string, number>> = { frontflip: 0.95, backflip: 1.0, fwdroll: 0.85, cartwheel: 0.95, stepfwd: 1.0, stepback: 0.95, gingafwd: 0.95, gingaback: 0.95 };
+
 /** Real rigged, motion-captured characters replace the hand-built bodies on every stage. */
 const REAL = true;
 
@@ -571,6 +574,10 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
   const stars = useRef<THREE.Group>(null);
   const fire = useRef<THREE.PointLight>(null);
   const baseX = useRef(fighterX(side, store.getState().distance));
+  // walking between ranges eases in and out (no lurching), and jumps and launches are followed
+  // through a short filter so the body never teleports between two moves
+  const walk = useRef({ from: baseX.current, to: baseX.current, t0: -10, dur: 0.4 });
+  const sm = useRef({ fwd: 0, y: 0, z: 0, lie: 0 });
   const dir = side === 0 ? 1 : -1;
   const wide = def.model.body === "mech" || def.model.body === "beast" ? 1.35 : def.model.body === "knight" ? 1.15 : 1;
   const hasLegs = def.model.body !== "robe";
@@ -584,7 +591,16 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
     FX_TIME.value = T;
 
     const target = fixedX ?? fighterX(side, st.distance);
-    baseX.current += (target - baseX.current) * Math.min(1, dt * 7);
+    const w = walk.current;
+    if (target !== w.to) {
+      w.from = baseX.current;
+      w.to = target;
+      w.t0 = T;
+      // a roll, cartwheel or flip carries the fighter across for as long as the move lasts
+      const travel = TRAVEL[f.anim] ?? Math.min(0.6, Math.max(0.3, Math.abs(target - baseX.current) / 2.8));
+      w.dur = travel / Math.max(0.25, st.rate);
+    }
+    baseX.current = w.from + (w.to - w.from) * ease((T - w.t0) / w.dur);
 
     let fwd = 0,
       lift = 0,
@@ -731,14 +747,25 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
     let pose = ZERO_POSE;
     if (mv) {
       const mt = T - mv.at;
-      if (mt >= 0 && (mt <= mv.dur || mv.hold)) pose = movePose(mv.kind, mt, mv.dur, gapOf(st.distance));
+      if (mt >= 0 && (mt <= mv.dur || mv.hold)) pose = movePose(mv.kind, mt, mv.dur, gapOf(st.distance), mv);
+    }
+    if (REAL) {
+      // the recorded clips carry their own lunge; only a softened recoil is added on top
+      fwd = fwd > 0 ? 0 : fwd * 0.5;
     }
     if (pose !== ZERO_POSE) {
       fwd = 0;
       zOff = 0;
     }
+    // follow the target offsets through a fast filter: continuous even when one move replaces another
+    const q = sm.current;
+    const follow = 1 - Math.exp(-Math.min(0.1, dt) * 30);
+    q.fwd += (fwd + pose.fwd - q.fwd) * follow;
+    q.y += (pose.y - q.y) * follow;
+    q.z += (zOff + pose.z - q.z) * follow;
+    q.lie += (pose.lie - q.lie) * follow;
     // lying flat: drop the hips from standing height to just off the floor
-    root.current.position.set(baseX.current + (fwd + pose.fwd) * dir, pose.y - pose.lie * (pivot - 0.16), zOff + pose.z);
+    root.current.position.set(baseX.current + q.fwd * dir, q.y - q.lie * (pivot - 0.16), q.z);
     if (flip.current) {
       flip.current.rotation.set(pose.roll, 0, -dir * pose.pitch);
     }
@@ -780,10 +807,10 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
 
     // aura (charge / special)
     if (aura.current) {
-      const on = f.anim === "charge" || (f.anim === "special" && t < 1.2) || (f.anim === "victory" && t < 2);
+      const on = f.charging || f.anim === "charge" || (f.anim === "special" && t < 1.2) || (f.anim === "victory" && t < 2);
       const mat = aura.current.material as THREE.Material;
-      mat.opacity += ((on ? 0.28 : 0) - mat.opacity) * Math.min(1, dt * 8);
-      const sc = 1 + Math.sin(T * 8) * 0.06 + (on ? 0.1 : 0);
+      mat.opacity += ((on ? 0.13 : 0) - mat.opacity) * Math.min(1, dt * 5);
+      const sc = 1 + Math.sin(T * 3) * 0.03 + (on ? 0.06 : 0);
       aura.current.scale.set(sc, 1 + Math.sin(T * 5) * 0.05, sc);
       aura.current.rotation.y = T * 1.5;
     }
@@ -794,21 +821,22 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
       // a struck guard flares and ripples outward, so you can see it stop the blow
       const gh = T - f.guardHitAt;
       const flare = gh >= 0 && gh < 0.45 ? 1 - gh / 0.45 : 0;
-      mat.opacity += ((on ? 0.24 : 0) - mat.opacity) * Math.min(1, dt * 12);
-      if (flare > 0) mat.opacity = Math.max(mat.opacity, 0.24 + flare * 0.45);
-      guard.current.visible = mat.opacity > 0.01;
-      guard.current.scale.setScalar(1 + flare * 0.12);
+      // kept faint: a bright dome popping in and out on every block reads as white flicker
+      mat.opacity += ((on ? 0.085 : 0) - mat.opacity) * Math.min(1, dt * 9);
+      if (flare > 0) mat.opacity = Math.max(mat.opacity, 0.085 + flare * flare * 0.11);
+      guard.current.visible = mat.opacity > 0.005;
+      guard.current.scale.setScalar(1 + flare * 0.06);
     }
     // shield bubble (Aegis' Bastion)
     if (shieldBubble.current) {
       const mat = shieldBubble.current.material as THREE.Material;
       const sh = T - f.shieldHitAt;
       const flare = sh >= 0 && sh < 0.6 ? 1 - sh / 0.6 : 0;
-      mat.opacity += ((f.shield ? 0.35 : 0) - mat.opacity) * Math.min(1, dt * 6);
-      if (flare > 0 && f.shield) mat.opacity = Math.max(mat.opacity, 0.35 + flare * 0.8);
-      shieldBubble.current.visible = mat.opacity > 0.01;
+      mat.opacity += ((f.shield ? 0.1 : 0) - mat.opacity) * Math.min(1, dt * 6);
+      if (flare > 0 && f.shield) mat.opacity = Math.max(mat.opacity, 0.1 + flare * flare * 0.1);
+      shieldBubble.current.visible = mat.opacity > 0.005;
       shieldBubble.current.rotation.y = T * 0.4;
-      shieldBubble.current.scale.setScalar(1 + flare * 0.08 + Math.sin(sh * 40) * 0.02 * flare);
+      shieldBubble.current.scale.setScalar(1 + flare * 0.04);
     }
     if (halo.current) {
       halo.current.visible = f.foresight;
@@ -855,7 +883,7 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
 
           {/* guard: a curved force-field in front of the fighter */}
           <mesh ref={guard} position={[0, 1.15, 0.12]} visible={false} material={fx.guard} renderOrder={4}>
-            <sphereGeometry args={[0.98, 48, 32, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 0.85, 1.7]} />
+            <sphereGeometry args={[GUARD_R + 0.12, 48, 32, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 0.85, 1.7]} />
           </mesh>
           {/* stun stars */}
           <group ref={stars} position={[0, 2.2, 0]} visible={false}>
@@ -882,7 +910,7 @@ export function FighterModel({ side, fixedX, facing: facingOverride }: { side: S
         <cylinderGeometry args={[0.6, 0.95, 2.7, 48, 24, true]} />
       </mesh>
       <mesh ref={shieldBubble} position={[0, 1.1, 0]} visible={false} material={fx.bubble} renderOrder={4}>
-        <sphereGeometry args={[1.3, 48, 32]} />
+        <sphereGeometry args={[SHIELD_R + 0.05, 48, 32]} />
       </mesh>
       <pointLight ref={fire} position={[0, 1.2, 0.3]} color="#ff6a2a" intensity={0} distance={4} />
       <pointLight position={[0, 1.6, 0.8]} color={def.palette.primary} intensity={theme === "neon" ? 2.2 : ink ? 0.4 : 0.9} distance={3.5} />

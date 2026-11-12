@@ -313,7 +313,7 @@ function applyHit(
   if (tgtAction === "charge") dmg *= 1.25;
 
   let result: "hit" | "blocked" | "absorbed" = "hit";
-  // WARROK's Iron Grip: heavies (and his suplex) grab straight through a guard
+  // VESPA's Iron Grip (slug: warrok): heavies (and her suplex) grab straight through a guard
   const grab = opts.unblockable || (attDef.slug === "warrok" && opts.vs === "heavy");
   if (tgtAction === "block" && !grab) {
     if (tgtDef.slug === "aegis") {

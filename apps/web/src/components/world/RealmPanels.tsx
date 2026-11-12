@@ -6,8 +6,11 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { BrainCircuit, Crown, Hammer, Map as MapIcon, Scale, Sparkles, Swords, X } from "lucide-react";
-import { CREATION_INFO, getFighter, JOB_INFO, type ColonyDTO, type Creation, type RealmState, type ResidentAction, type WorldEventDTO } from "@clashagent/shared";
+import { CREATION_INFO, JOBS, friendsAndRivals, getFighter, JOB_INFO, skillLevel, type ColonyDTO, type Creation, type RealmState, type ResidentAction, type WorldEventDTO } from "@clashagent/shared";
 import { FighterAvatar } from "../ui/FighterAvatar";
+import { useEffect, useState } from "react";
+import { realmClock } from "./clock";
+import { doingAt, pickSinger } from "./schedule";
 
 const ACTION_LABEL: Record<ResidentAction, string> = {
   work: "Working",
@@ -18,6 +21,7 @@ const ACTION_LABEL: Record<ResidentAction, string> = {
   campaign: "Campaigning for elder",
   switch_job: "Changing trades",
   create: "Building something of their own",
+  craft: "Making their own gear",
 };
 
 function Meter({ label, value, color }: { label: string; value: number; color: string }) {
@@ -94,6 +98,8 @@ export function ResidentCard({
         <p className="mt-1 text-sm italic text-muted">&ldquo;{s?.thought ?? "Settling in."}&rdquo;</p>
       </div>
 
+      <RightNow colony={colony} id={m.id} />
+
       <div className="mt-4 grid grid-cols-2 gap-3">
         <Meter label="Mood" value={s?.mood ?? 70} color="#4dffa6" />
         <Meter label="Fighting form" value={s?.form ?? 30} color={f.palette.primary} />
@@ -110,6 +116,8 @@ export function ResidentCard({
           </div>
         ))}
       </div>
+
+      <Growth colony={colony} id={m.id} />
 
       {(() => {
         const mine = (realm?.creations ?? []).filter((c) => c.owner === m.id);
@@ -385,6 +393,92 @@ export function CreationsCard({ colony, onPick }: { colony: ColonyDTO; onPick: (
               <CreationRow c={c} showOwner />
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What they're doing at this hour of the Realm day. */
+function RightNow({ colony, id }: { colony: ColonyDTO; id: string }) {
+  const [hour, setHour] = useState(() => realmClock().hour);
+  useEffect(() => {
+    const t = setInterval(() => setHour(realmClock().hour), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const m = colony.members.find((x) => x.id === id);
+  if (!m) return null;
+  const d = doingAt(hour, m, colony.sim.realm, { singer: pickSinger(colony) });
+  return (
+    <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+      <span className={clsx("h-1.5 w-1.5 rounded-full", d.visible ? "bg-win" : "bg-white/30")} />
+      Right now: {d.label.charAt(0).toLowerCase() + d.label.slice(1)}
+    </div>
+  );
+}
+
+/** How they've grown: skill in each trade, friends and rivals, and what they remember. */
+function Growth({ colony, id }: { colony: ColonyDTO; id: string }) {
+  const s = colony.sim.realm?.residents[id];
+  if (!s) return null;
+  const name = (x: string) => colony.members.find((p) => p.id === x)?.name;
+  const skills = JOBS.map((j) => [j, s.xp?.[j] ?? 0] as const).filter(([, xp]) => xp > 0).sort((a, b) => b[1] - a[1]);
+  const fr = friendsAndRivals(s);
+  const friends = fr.friends.map(name).filter(Boolean) as string[];
+  const rivals = fr.rivals.map(name).filter(Boolean) as string[];
+  const mem = [...(s.memories ?? [])].reverse().slice(0, 6);
+  const ICON: Record<string, string> = { win: "🏆", loss: "🩹", draw: "🤝", skill: "⭐", hunger: "🍚", raid: "🗡", elder: "👑", build: "🔨", war: "⚔", friend: "🫂", festival: "🔥" };
+  return (
+    <div className="mt-4 space-y-3">
+      {skills.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[11px] uppercase tracking-[0.16em] text-dim">Skills</div>
+          <div className="flex flex-wrap gap-1.5">
+            {skills.map(([j, xp]) => {
+              const lvl = skillLevel(xp);
+              const next = 4 * (lvl + 1) * (lvl + 1);
+              const prev = 4 * lvl * lvl;
+              return (
+                <div key={j} className="min-w-[110px] flex-1 rounded-lg bg-white/[0.03] px-2.5 py-1.5" title={`${xp} days worked`}>
+                  <div className="flex justify-between text-xs">
+                    <span>{JOB_INFO[j].label}</span>
+                    <span className="font-mono tabular text-accent">L{lvl}</span>
+                  </div>
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/[0.07]">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${lvl >= 10 ? 100 : ((xp - prev) / (next - prev)) * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {(friends.length > 0 || rivals.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 text-[11px]">
+          {friends.map((f) => (
+            <span key={f} className="rounded-full bg-win/10 px-2 py-0.5 text-win">
+              friend · {f}
+            </span>
+          ))}
+          {rivals.map((f) => (
+            <span key={f} className="rounded-full bg-loss/10 px-2 py-0.5 text-loss">
+              rival · {f}
+            </span>
+          ))}
+        </div>
+      )}
+      {mem.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[11px] uppercase tracking-[0.16em] text-dim">Remembers</div>
+          <ul className="space-y-1">
+            {mem.map((x, i) => (
+              <li key={i} className="flex gap-2 text-xs text-muted">
+                <span className="w-4 shrink-0 text-center">{ICON[x.kind] ?? "·"}</span>
+                <span className="w-12 shrink-0 font-mono text-[11px] text-dim">day {x.day}</span>
+                <span>{x.text}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

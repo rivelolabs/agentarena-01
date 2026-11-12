@@ -174,20 +174,21 @@ export const runner = new BattleRunner();
 async function finishMatch(match: Match, state: BattleState) {
   const winner = state.winner as 0 | 1 | -1;
   const pot = match.stake * 2;
+  const currency = match.mode === "play" ? ("play" as const) : ("sol" as const);
   const fee = winner === -1 ? 0 : Math.floor((pot * match.feeBps) / 10_000);
   const prize = pot - fee;
   const ranked = match.mode !== "practice";
 
   await db.transaction(async (tx) => {
-    // 1. Money (credits mode settles here; escrow settles on-chain below)
-    if (match.mode === "credits" && match.stake > 0) {
+    // 1. Money. In-house escrow (SOL balance or play credits) settles here; on-chain modes settle below.
+    if ((match.mode === "credits" || match.mode === "play") && match.stake > 0) {
       if (winner === -1) {
-        await credit(tx, match.creatorId!, match.stake, "refund", { matchId: match.id, note: "Draw" });
-        await credit(tx, match.challengerId!, match.stake, "refund", { matchId: match.id, note: "Draw" });
+        await credit(tx, match.creatorId!, match.stake, "refund", { matchId: match.id, note: "Draw", currency });
+        await credit(tx, match.challengerId!, match.stake, "refund", { matchId: match.id, note: "Draw", currency });
       } else {
         const winnerUser = winner === 0 ? match.creatorId! : match.challengerId!;
-        await credit(tx, winnerUser, prize, "payout", { matchId: match.id });
-        if (fee > 0) await credit(tx, await getSystemUserId(), fee, "fee", { matchId: match.id });
+        await credit(tx, winnerUser, prize, "payout", { matchId: match.id, currency });
+        if (fee > 0) await credit(tx, await getSystemUserId(), fee, "fee", { matchId: match.id, currency });
       }
     }
 
@@ -200,7 +201,10 @@ async function finishMatch(match: Match, state: BattleState) {
       if (a && b) {
         const score = winner === 0 ? 1 : winner === 1 ? 0 : 0.5;
         const [ea, eb] = eloUpdate(a.elo, b.elo, score);
-        const net = prize - match.stake;
+        // agent earnings track SOL only; play-credit wins don't count as money
+        const sol = currency === "sol";
+        const net = sol ? prize - match.stake : 0;
+        const lost = sol ? match.stake : 0;
         await tx
           .update(agents)
           .set({
@@ -208,7 +212,7 @@ async function finishMatch(match: Match, state: BattleState) {
             wins: sql`${agents.wins} + ${winner === 0 ? 1 : 0}`,
             losses: sql`${agents.losses} + ${winner === 1 ? 1 : 0}`,
             draws: sql`${agents.draws} + ${winner === -1 ? 1 : 0}`,
-            earnings: sql`${agents.earnings} + ${winner === 0 ? net : winner === 1 ? -match.stake : 0}`,
+            earnings: sql`${agents.earnings} + ${winner === 0 ? net : winner === 1 ? -lost : 0}`,
           })
           .where(eq(agents.id, a.id));
         await tx
@@ -218,7 +222,7 @@ async function finishMatch(match: Match, state: BattleState) {
             wins: sql`${agents.wins} + ${winner === 1 ? 1 : 0}`,
             losses: sql`${agents.losses} + ${winner === 0 ? 1 : 0}`,
             draws: sql`${agents.draws} + ${winner === -1 ? 1 : 0}`,
-            earnings: sql`${agents.earnings} + ${winner === 1 ? net : winner === 0 ? -match.stake : 0}`,
+            earnings: sql`${agents.earnings} + ${winner === 1 ? net : winner === 0 ? -lost : 0}`,
           })
           .where(eq(agents.id, b.id));
       }
@@ -279,9 +283,10 @@ export async function voidMatch(matchId: string, reason: string) {
       .where(and(eq(matches.id, matchId), eq(matches.status, m.status)))
       .returning();
     if (!updated.length) return;
-    if (m.mode === "credits" && m.stake > 0) {
-      if (m.creatorId) await credit(tx, m.creatorId, m.stake, "refund", { matchId, note: reason });
-      if (m.challengerId && m.status === "live") await credit(tx, m.challengerId, m.stake, "refund", { matchId, note: reason });
+    if ((m.mode === "credits" || m.mode === "play") && m.stake > 0) {
+      const currency = m.mode === "play" ? ("play" as const) : ("sol" as const);
+      if (m.creatorId) await credit(tx, m.creatorId, m.stake, "refund", { matchId, note: reason, currency });
+      if (m.challengerId && m.status === "live") await credit(tx, m.challengerId, m.stake, "refund", { matchId, note: reason, currency });
     }
   });
   if (m.mode === "escrow" && m.status === "live") await settleOnChain(matchId, 2);

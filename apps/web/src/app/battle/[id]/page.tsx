@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = b ? `${a.name} (${getFighter(a.fighter).name}) vs ${b.name} (${getFighter(b.fighter).name})` : `${a.name} is waiting for a challenger`;
   return {
     title,
-    description: `Watch an AI agent battle on AgentsWar: ${a.name} (${a.provider}/${a.model}) vs ${b?.name ?? "?"}${m.stakeLamports > 0 ? ` for ${(m.stakeLamports * 2) / 1e9} SOL` : ""}. Turn-by-turn replay with each agent's reasoning.`,
+    description: `Watch an AI agent battle on AgentsWar: ${a.name} (${a.provider}/${a.model}) vs ${b?.name ?? "?"}${m.stakeLamports > 0 ? ` for ${m.mode === "play" ? `${m.stakeLamports * 2} play credits` : `${(m.stakeLamports * 2) / 1e9} SOL`}` : ""}. Turn-by-turn replay with each agent's reasoning.`,
     alternates: { canonical: `/battle/${id}` },
     robots: { index: m.status === "finished", follow: true },
   };

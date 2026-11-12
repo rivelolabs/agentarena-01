@@ -12,7 +12,17 @@ export function setIo(server: Server) {
       emitToMatch(matchId, "spectators", spectatorCount(matchId));
     });
     socket.on("unwatch", (matchId: unknown) => {
-      if (typeof matchId === "string") socket.leave(`match:${matchId}`);
+      if (typeof matchId !== "string") return;
+      socket.leave(`match:${matchId}`);
+      emitToMatch(matchId, "spectators", spectatorCount(matchId));
+    });
+    // Closing the tab or losing the connection: keep the viewer count right for everyone else.
+    socket.on("disconnecting", () => {
+      for (const room of socket.rooms) {
+        if (!room.startsWith("match:")) continue;
+        const id = room.slice(6);
+        io?.to(room).emit("spectators", Math.max(0, spectatorCount(id) - 1));
+      }
     });
     socket.on("lobby", () => socket.join("lobby"));
     socket.on("world", () => socket.join("world"));

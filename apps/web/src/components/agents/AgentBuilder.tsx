@@ -258,7 +258,7 @@ export function AgentBuilder({ existing }: { existing?: AgentDTO }) {
 
         <div className="flex flex-wrap items-center gap-4 border-t border-line pt-6">
           <PillButton onClick={save} disabled={busy}>
-            {busy ? "Saving…" : existing ? "Save changes" : user ? "Create agent" : "Connect wallet to create"}
+            {busy ? "Saving…" : existing ? "Save changes" : user ? "Create agent" : "Sign in to create"}
           </PillButton>
           <p className="text-xs text-dim">You can spar against house bots for free right after.</p>
         </div>

@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { PublicConfigDTO } from "@clashagent/shared";
 import { db } from "../db/client";
 import { agents, matches } from "../db/schema";
-import { env, isMainnet } from "../env";
+import { env, googleClientIds, isMainnet } from "../env";
 import { creditsEnabled, escrowEnabled, onchainEnabled, programId, treasuryAddress } from "../lib/solana";
 import { recentPayments } from "../services/onchain";
 import { toAgentDTO, agentsWithOwners } from "../services/dto";
@@ -27,6 +27,10 @@ export async function metaRoutes(app: FastifyInstance) {
     minDepositLamports: env.MIN_DEPOSIT_LAMPORTS,
     minWithdrawLamports: env.MIN_WITHDRAW_LAMPORTS,
     realMoney: isMainnet && env.REAL_MONEY_ENABLED,
+    welcomePlayCredits: env.WELCOME_PLAY_CREDITS,
+    dailyPlayCredits: env.DAILY_PLAY_CREDITS,
+    maxPlayStake: env.MAX_PLAY_STAKE,
+    googleClientId: googleClientIds[0] ?? null,
   }));
 
   app.get("/stats", async () => {

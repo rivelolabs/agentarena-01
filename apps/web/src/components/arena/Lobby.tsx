@@ -10,16 +10,18 @@ import { Loader2, Plus } from "lucide-react";
 import { LAMPORTS_PER_SOL, type AgentDTO, type MatchDTO } from "@clashagent/shared";
 import { api } from "@/lib/api";
 import { API_URL } from "@/lib/config";
-import { useConfig, useMatches, useMyAgents } from "@/lib/hooks";
+import { useConfig, useFreeQuota, useMatches, useMyAgents } from "@/lib/hooks";
 import { useAuth } from "@/providers/AuthProvider";
 import { MatchRow } from "../battle/MatchRow";
 import { FighterGlyph, LiveDot } from "../ui/bits";
 import { Field, Modal, Segmented, inputCls } from "../ui/Modal";
 import { PillButton, useRequireAuthPrompt } from "../wallet/WalletButton";
 import { escrowCancel, escrowCreate, escrowJoin, stakeTx } from "@/lib/solana-client";
-import { PROVIDER_LABEL, sol } from "@/lib/format";
+import { PROVIDER_LABEL, amount, credits, sol } from "@/lib/format";
 
 type Tab = "open" | "live" | "finished";
+type Pool = "all" | "play" | "sol";
+const inPool = (m: MatchDTO, p: Pool) => p === "all" || (p === "play" ? m.mode === "play" : m.mode !== "play");
 
 export function Lobby() {
   const [tab, setTab] = useState<Tab>("open");
@@ -29,6 +31,10 @@ export function Lobby() {
   const { user, prompt, modal } = useRequireAuthPrompt();
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState<MatchDTO | null>(null);
+  const [pool, setPool] = useState<Pool>("all");
+  const { config } = useConfig();
+  const { quota, mutate: refreshQuota } = useFreeQuota(!!user);
+  const mainnet = config?.cluster === "mainnet-beta";
 
   // Lobby push updates
   useEffect(() => {
@@ -46,7 +52,7 @@ export function Lobby() {
   }, []);
 
   const lists = { open: open.matches, live: live.matches, finished: done.matches };
-  const list = lists[tab];
+  const list = lists[tab].filter((m) => inPool(m, pool));
 
   return (
     <div>
@@ -70,7 +76,41 @@ export function Lobby() {
             </button>
           ))}
         </div>
-        <PillButton onClick={() => (user ? setCreating(true) : prompt())}>Open a challenge</PillButton>
+        <div className="flex flex-wrap items-center gap-3">
+          {quota && !quota.unlimited && (
+            <span
+              title={quota.resetsAt ? `Next free match ${new Date(quota.resetsAt).toLocaleString()}` : "Counts play-credit matches and devnet matches over the last 7 days. Practice spars are unlimited."}
+              className={clsx("rounded-full border px-3 py-1.5 text-xs", quota.remaining ? "border-line text-muted" : "border-loss/40 text-loss")}
+            >
+              Free matches this week: {quota.remaining} of {quota.limit} left
+            </span>
+          )}
+          <PillButton onClick={() => (user ? setCreating(true) : prompt())}>Open a challenge</PillButton>
+        </div>
+      </div>
+
+      {/* Stakes never mix: play-credit challenges can only be taken with play credits, SOL challenges only with SOL. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        {(
+          [
+            ["all", "All"],
+            ["play", "Play credits"],
+            ["sol", mainnet ? "Real SOL" : `${config?.cluster ?? "devnet"} SOL (test)`],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setPool(k)}
+            className={clsx("rounded-full border px-3.5 py-1.5 transition", pool === k ? "border-white/40 bg-white text-[#111]" : "border-line text-muted hover:text-fg")}
+          >
+            {label}
+          </button>
+        ))}
+        {!mainnet && config && (
+          <span className="ml-auto rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs text-accent">
+            {config.cluster} · everyone here plays with test SOL
+          </span>
+        )}
       </div>
 
       {list.length === 0 ? (
@@ -88,7 +128,7 @@ export function Lobby() {
               m={m}
               action={
                 tab === "open" ? (
-                  user && m.creatorWallet === user.wallet ? (
+                  user && (m.creatorId ? m.creatorId === user.id : !!user.wallet && m.creatorWallet === user.wallet) ? (
                     <CancelButton m={m} onDone={() => open.mutate()} />
                   ) : (
                     <button
@@ -105,8 +145,8 @@ export function Lobby() {
         </div>
       )}
 
-      {creating && <CreateChallenge onClose={() => setCreating(false)} onCreated={() => open.mutate()} />}
-      {joining && <JoinChallenge match={joining} onClose={() => setJoining(null)} />}
+      {creating && <CreateChallenge onClose={() => setCreating(false)} onCreated={() => (open.mutate(), refreshQuota())} />}
+      {joining && <JoinChallenge match={joining} onClose={() => (setJoining(null), refreshQuota())} />}
       {modal}
     </div>
   );
@@ -188,16 +228,20 @@ function CreateChallenge({ onClose, onCreated }: { onClose: () => void; onCreate
   const wallet = useWallet();
   const router = useRouter();
   const [agentId, setAgentId] = useState("");
-  const [mode, setMode] = useState<"credits" | "onchain" | "escrow">("credits");
+  const [mode, setMode] = useState<"play" | "credits" | "onchain" | "escrow">("play");
   const [stake, setStake] = useState("0.1");
+  const [playStake, setPlayStake] = useState("100");
+  const play = mode === "play";
+  // SOL stakes are only open where real money is switched on (always on devnet, where SOL is test money)
+  const solOpen = !!config && (config.cluster !== "mainnet-beta" || config.realMoney);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!agentId && agents[0]) setAgentId(agents[0].id);
   }, [agents, agentId]);
 
-  const lamports = Math.round(Number(stake || 0) * LAMPORTS_PER_SOL);
-  const fee = config ? (lamports * 2 * config.feeBps) / 10_000 : 0;
+  const lamports = play ? Math.round(Number(playStake || 0)) : Math.round(Number(stake || 0) * LAMPORTS_PER_SOL);
+  const fee = config && !play ? (lamports * 2 * config.feeBps) / 10_000 : 0;
 
   const submit = async () => {
     if (!agentId) return toast.error("Pick an agent");
@@ -238,8 +282,10 @@ function CreateChallenge({ onClose, onCreated }: { onClose: () => void; onCreate
         <Field
           label="Stake mode"
           hint={
-            mode === "credits"
-              ? "Instant. Uses your AgentsWar credit balance."
+            play
+              ? "Free play credits. Both stakes are held by AgentsWar and the winner gets the whole pot. No real money."
+              : mode === "credits"
+              ? "Instant. Your SOL balance on AgentsWar is held for the fight; the winner's balance is credited the moment it ends. Deposit or withdraw any time on the Wallet page."
               : mode === "onchain"
                 ? "Live on-chain. You pay the stake from your wallet now, and the winner is paid to their wallet automatically the moment the fight ends."
                 : "Trustless. SOL is locked in the open-source Solana escrow program until the fight is settled."
@@ -249,31 +295,52 @@ function CreateChallenge({ onClose, onCreated }: { onClose: () => void; onCreate
             value={mode}
             onChange={setMode}
             options={[
-              { value: "credits", label: "Credits" },
-              { value: "onchain", label: "On-chain", disabled: !config?.onchainEnabled },
-              { value: "escrow", label: "Escrow program", disabled: !config?.escrowEnabled },
+              { value: "play", label: "Play credits" },
+              { value: "credits", label: "SOL", disabled: !solOpen },
+              { value: "onchain", label: "On-chain", disabled: !solOpen || !config?.onchainEnabled },
+              { value: "escrow", label: "Escrow program", disabled: !solOpen || !config?.escrowEnabled },
             ]}
           />
         </Field>
-        <Field
-          label="Stake (SOL)"
-          hint={
-            <>
-              Pot {sol(lamports * 2)} SOL · winner takes {sol(lamports * 2 - fee)} SOL ({(config?.feeBps ?? 500) / 100}% fee). Draw refunds both.
-              {mode === "credits" && user && <> · Balance {sol(user.credits)} SOL</>}
-              {mode === "credits" && " · Set 0 for a free ranked match."}
-            </>
-          }
-        >
-          <div className="flex gap-2">
-            <input className={inputCls} inputMode="decimal" value={stake} onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ""))} />
-            {["0", "0.05", "0.1", "0.5"].map((v) => (
-              <button key={v} type="button" onClick={() => setStake(v)} className="rounded-xl border border-line px-3 text-sm text-muted hover:text-fg">
-                {v === "0" ? "Free" : v}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {play ? (
+          <Field
+            label="Stake (play credits)"
+            hint={
+              <>
+                Pot {credits(lamports * 2)} credits · winner takes all. Draw refunds both.
+                {user && <> · Balance {credits(user.playCredits ?? 0)} credits</>}
+              </>
+            }
+          >
+            <div className="flex gap-2">
+              <input className={inputCls} inputMode="numeric" value={playStake} onChange={(e) => setPlayStake(e.target.value.replace(/[^0-9]/g, ""))} />
+              {["0", "50", "100", "500"].map((v) => (
+                <button key={v} type="button" onClick={() => setPlayStake(v)} className="rounded-xl border border-line px-3 text-sm text-muted hover:text-fg">
+                  {v === "0" ? "Free" : v}
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : (
+          <Field
+            label="Stake (SOL)"
+            hint={
+              <>
+                Pot {sol(lamports * 2)} SOL · winner takes {sol(lamports * 2 - fee)} SOL ({(config?.feeBps ?? 500) / 100}% fee). Draw refunds both.
+                {mode === "credits" && user && <> · Balance {sol(user.credits)} SOL</>}
+              </>
+            }
+          >
+            <div className="flex gap-2">
+              <input className={inputCls} inputMode="decimal" value={stake} onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ""))} />
+              {["0.05", "0.1", "0.5", "1"].map((v) => (
+                <button key={v} type="button" onClick={() => setStake(v)} className="rounded-xl border border-line px-3 text-sm text-muted hover:text-fg">
+                  {v}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         <PillButton onClick={submit} disabled={!!busy || !agentId} className="w-full justify-between">
           {busy ? (
             <span className="flex items-center gap-2">
@@ -332,7 +399,7 @@ function JoinChallenge({ match, onClose }: { match: MatchDTO; onClose: () => voi
   return (
     <Modal
       title={`Fight ${match.agentA?.name ?? "challenger"}`}
-      sub={match.stakeLamports > 0 ? `Stake ${sol(match.stakeLamports)} SOL · pot ${sol(match.stakeLamports * 2)} SOL` : "Free ranked match"}
+      sub={match.stakeLamports > 0 ? `Stake ${amount(match.mode, match.stakeLamports)} · pot ${amount(match.mode, match.stakeLamports * 2)}` : "Free ranked match"}
       onClose={onClose}
     >
       <div className="space-y-5">

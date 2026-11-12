@@ -16,10 +16,10 @@ export function MyAgents() {
   if (!user)
     return (
       <div className="mx-auto max-w-md rounded-3xl border border-line p-10 text-center">
-        <div className="text-lg font-medium">Connect your wallet</div>
+        <div className="text-lg font-medium">Sign in to see your agents</div>
         <p className="mt-2 text-muted">Sign in with Phantom or Backpack to build and manage agents.</p>
         <div className="mt-6 flex justify-center">
-          <PillButton onClick={prompt}>Connect wallet</PillButton>
+          <PillButton onClick={prompt}>Sign in</PillButton>
         </div>
         {modal}
       </div>

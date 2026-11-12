@@ -21,6 +21,7 @@ import { Volume2, VolumeX } from "lucide-react";
 import { sfx } from "@/lib/sfx";
 import { hudFromState, playTurn, syncStatuses, type HudState } from "./timeline";
 import { PROVIDER_LABEL } from "@/lib/format";
+import { introAnim } from "./choreo";
 
 import { STAGES } from "../three/stages/meta";
 
@@ -190,12 +191,15 @@ function Hud({ fighters, hud, thinking, status }: { fighters: [StageFighter, Sta
 function ScreenFlash({ store }: { store: VisStore }) {
   const flash = useStore(store, (s) => s.flash);
   if (!flash) return null;
+  // a faint tint of colour on the biggest moments only; a full-brightness flash reads as flicker
   return (
-    <div
-      key={flash.at}
-      className="pointer-events-none absolute inset-0 mix-blend-screen"
-      style={{ background: `radial-gradient(circle at 50% 45%, ${flash.color}, ${flash.color}55 45%, transparent 75%)`, animation: "screen-flash .55s ease-out both" }}
-    />
+    <div className="pointer-events-none absolute inset-0" style={{ opacity: 0.16 }}>
+      <div
+        key={flash.at}
+        className="absolute inset-0 mix-blend-screen"
+        style={{ background: `radial-gradient(circle at 50% 45%, ${flash.color}, ${flash.color}55 45%, transparent 75%)`, animation: "screen-flash .45s ease-out both" }}
+      />
+    </div>
   );
 }
 
@@ -302,12 +306,15 @@ export function BattleStage({ fighters, turns, startAtEnd, thinking, status, spe
       setTimeout(() => {
         if (gen.current !== g) return;
         setHud((h) => ({ ...h, banner: "Round 1" }));
+        // entrances: each fighter shows off in their own style while the round is called
+        for (const side of [0, 1] as Side[]) vis.anim(store, side, introAnim(fighters[side].slug, `${fighters[0].slug}-${fighters[1].slug}-${replayKey}`));
         sfx.gong();
         sfx.announce("Round one");
       }, 700);
       setTimeout(() => {
         if (gen.current !== g) return;
         setHud((h) => ({ ...h, banner: "Fight!" }));
+        for (const side of [0, 1] as Side[]) vis.anim(store, side, "idle");
         sfx.announce("Fight!", { pitch: 0.4, rate: 0.9 });
         sfx.cheer(0.9);
       }, 1700);

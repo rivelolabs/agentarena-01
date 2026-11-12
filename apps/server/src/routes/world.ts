@@ -1,7 +1,8 @@
+import { env } from "../env";
 import type { FastifyInstance } from "fastify";
 import { and, asc, count, eq } from "drizzle-orm";
 import { z } from "zod";
-import { BUILDING_KINDS, JOBS, capacity, newColony, suggestJob, type ColonyMember, type ColonySim, type Job } from "@clashagent/shared";
+import { BUILDING_KINDS, GUARDRAILS, JOBS, capacity, hasLaw, newColony, suggestJob, type ColonyMember, type ColonySim, type Job } from "@clashagent/shared";
 import { db } from "../db/client";
 import { agents, colonies } from "../db/schema";
 import { badRequest, conflict, forbidden, notFound, requireAuth } from "../lib/http";
@@ -18,7 +19,7 @@ async function ownedAgent(agentId: string, uid: string) {
 export async function worldRoutes(app: FastifyInstance) {
   app.get("/world", async () => {
     const rows = await db.select().from(colonies).orderBy(asc(colonies.slot));
-    return { colonies: await colonyDTOs(rows), events: await recentEvents(40), maxColonies: MAX_COLONIES };
+    return { colonies: await colonyDTOs(rows), events: await recentEvents(40), maxColonies: MAX_COLONIES, dayMs: env.WORLD_TICK_MS };
   });
 
   app.get("/colonies/:id", async (req) => {
@@ -66,6 +67,9 @@ export async function worldRoutes(app: FastifyInstance) {
     if (!c) throw notFound("Colony not found");
     const current = await db.select({ id: agents.id, name: agents.name, job: agents.job }).from(agents).where(and(eq(agents.colonyId, id), eq(agents.archived, false)));
     if (current.length >= capacity(c.sim as ColonySim)) throw conflict("No free houses. The colony must build more Houses first.");
+    if (hasLaw(c.sim as ColonySim, "closed_gates")) throw conflict("This colony's council has closed its gates. No new residents for now.");
+    const [{ n: mineHere }] = await db.select({ n: count() }).from(agents).where(and(eq(agents.colonyId, id), eq(agents.ownerId, auth.uid), eq(agents.archived, false)));
+    if (mineHere >= GUARDRAILS.maxPerOwner) throw conflict(`You can keep up to ${GUARDRAILS.maxPerOwner} agents in one colony`);
     const job = suggestJob(current.map((m) => ({ ...m, job: m.job as Job })) as ColonyMember[]);
     await db.update(agents).set({ colonyId: id, job }).where(eq(agents.id, a.id));
     await addEvents(id, (c.sim as ColonySim).day, [{ kind: "join", text: `${a.name} moved in and took work as a ${job}.` }]);

@@ -13,7 +13,7 @@ import { DemoBattle } from "../battle/BattleStage";
 import { STAGES } from "../three/stages/meta";
 import type { StageTheme } from "../three/store";
 import { FighterGlyph, LiveDot } from "../ui/bits";
-import { explorerTx, shortAddr, sol, timeAgo } from "@/lib/format";
+import { credits, explorerTx, shortAddr, sol, timeAgo } from "@/lib/format";
 import { LazyMount } from "./LazyMount";
 import { demoWorld } from "../world/demoWorld";
 
@@ -116,10 +116,11 @@ export function MiniDashboard() {
     <div className="grain relative mt-6 overflow-hidden rounded-[22px] border border-line bg-[radial-gradient(120%_160%_at_0%_0%,#2a2a2d_0%,#161618_60%)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-6">
         <div>
-          <div className="text-sm text-dim">Welcome back, {user.handle ?? shortAddr(user.wallet)}</div>
+          <div className="text-sm text-dim">Welcome back, {user.handle ?? (shortAddr(user.wallet) || "fighter")}</div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-8 gap-y-2">
             {[
-              [`${sol(user.credits)} SOL`, "credits"],
+              [credits(user.playCredits ?? 0), "play credits"],
+              [`${sol(user.credits)}`, "SOL"],
               [String(agents.length), "agents"],
               [games ? `${Math.round((wins / games) * 100)}%` : "—", "win rate"],
               [String(lessons), "lessons learned"],

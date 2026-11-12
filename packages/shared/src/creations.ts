@@ -9,7 +9,7 @@
  */
 import { getFighter, type FighterSlug } from "./fighters";
 import type { Rng } from "./rng";
-import type { ColonySim, WorldEvent } from "./world";
+import { book, type ColonySim, type WorldEvent } from "./world";
 
 export const CREATION_KINDS = ["statue", "fountain", "garden", "windmill", "lighthouse", "forge", "observatory", "arch", "stall", "sculpture", "greenhouse", "totem"] as const;
 export type CreationKind = (typeof CREATION_KINDS)[number];
@@ -101,7 +101,7 @@ const TASTE: Record<FighterSlug, { kinds: CreationKind[]; words: string[]; lines
   glitch: { kinds: ["sculpture", "stall", "observatory"], words: ["Pixel", "Null", "Echo"], lines: ["Error: too beautiful.", "404: boredom not found."] },
   kaiju: { kinds: ["totem", "statue", "windmill"], words: ["Thunder", "Tidal", "Titan"], lines: ["ROAR.", "Big things for a big town."] },
   oracle: { kinds: ["garden", "greenhouse", "lighthouse"], words: ["Star", "Veil", "Omen"], lines: ["What grows here was foreseen.", "Look up."] },
-  warrok: { kinds: ["arch", "statue", "forge"], words: ["Warlord", "Ring", "Iron"], lines: ["Guards are just handles.", "Champions only."] },
+  warrok: { kinds: ["arch", "statue", "forge"], words: ["Hornet", "Gilded", "Ring"], lines: ["Guards are just handles.", "Champions only."] },
   noctis: { kinds: ["observatory", "sculpture", "garden"], words: ["Crimson", "Night", "Count"], lines: ["Open after dark.", "Beauty that bites."] },
   akai: { kinds: ["totem", "lighthouse", "stall"], words: ["Storm", "Gale", "Red"], lines: ["Feet first. Always.", "Built at full speed."] },
 };
@@ -150,6 +150,7 @@ export function startCreation(sim: ColonySim, owner: { id: string; name: string;
   const fromPurse = Math.min(purse.purse, koku);
   purse.purse -= fromPurse;
   r.koku -= koku - fromPurse;
+  book(sim, "out", "creations", koku - fromPurse);
   const used = new Set(list.map((c) => c.plot));
   let plot = 0;
   while (used.has(plot)) plot++;
@@ -194,6 +195,7 @@ export function creationGifts(sim: ColonySim): { mood: number; form: number } {
     r.timber += g.timber ?? 0;
     r.iron += g.iron ?? 0;
     r.koku += g.koku ?? 0;
+    book(sim, "in", "creations", g.koku ?? 0);
     r.knowledge += g.knowledge ?? 0;
     mood += g.mood ?? 0;
     form += g.form ?? 0;

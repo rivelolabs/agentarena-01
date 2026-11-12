@@ -31,18 +31,19 @@ import { PillButton, useRequireAuthPrompt } from "../wallet/WalletButton";
 import { useTalkLog } from "./talkBus";
 import { demoWorld } from "./demoWorld";
 import { CreationsCard, ElectionCard, MarketCard, RealmMap, ResidentCard } from "./RealmPanels";
-import { realmClock } from "./clock";
+import { realmClock, setDayLength } from "./clock";
+import { DayCard, LedgerCard } from "./RealmLife";
 
 /** Time of day and weather shown over the town. */
 function SkyChip({ weather }: { weather?: string }) {
   const [c, setC] = useState(() => realmClock());
   useEffect(() => {
-    const id = setInterval(() => setC(realmClock()), 5000);
+    const id = setInterval(() => setC(realmClock()), 1000);
     return () => clearInterval(id);
   }, []);
   const icon = weather === "rain" ? "🌧" : weather === "fog" ? "🌫" : c.night > 0.5 ? "🌙" : "☀";
   return (
-    <span className="flex items-center gap-1" title="One day in the Realm lasts 8 minutes">
+    <span className="flex items-center gap-1" title="Four Realm days pass in one real day">
       {icon} {c.phase} {c.label}
       {weather && weather !== "clear" ? ` · ${weather}` : ""}
     </span>
@@ -81,10 +82,12 @@ interface WorldData {
   colonies: ColonyDTO[];
   events: WorldEventDTO[];
   maxColonies: number;
+  /** length of a Realm day in real ms (from the server) */
+  dayMs?: number;
 }
 
 const COLORS = ["#ff5fa8", "#4dd2ff", "#ffd24d", "#9be07a", "#b26bff", "#ff8a4d", "#a8382c", "#8ff0e0"];
-const EVENT_DOT: Record<string, string> = { build: "#ffd24d", harvest: "#9be07a", raid: "#ff5c5c", hunger: "#ff8a4d", trade: "#4dd2ff", arena: "#ff5fa8", join: "#d4ff3a", leave: "#9b9ba1", decree: "#b26bff", festival: "#ffd6e6", founded: "#ffffff", election: "#d4ff3a", war: "#ff5c5c", spar: "#ff9f4d", weather: "#9fb6ff", creation: "#ffb86b" };
+const EVENT_DOT: Record<string, string> = { build: "#ffd24d", harvest: "#9be07a", raid: "#ff5c5c", hunger: "#ff8a4d", trade: "#4dd2ff", arena: "#ff5fa8", join: "#d4ff3a", leave: "#9b9ba1", decree: "#b26bff", festival: "#ffd6e6", founded: "#ffffff", election: "#d4ff3a", war: "#ff5c5c", spar: "#ff9f4d", weather: "#9fb6ff", creation: "#ffb86b", law: "#d4ff3a", court: "#ff8a4d", gear: "#c9c9d1", talk: "#7fd4ff" };
 
 function Res({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (
@@ -106,6 +109,7 @@ export function WorldView() {
   const preview = !live && (!!error || slow);
   const demo = useMemo(() => (preview ? demoWorld() : null), [preview]);
   const data = live ?? demo;
+  setDayLength(live?.dayMs);
   const { user } = useAuth();
   const { prompt, modal } = useRequireAuthPrompt();
   const mine = useMyAgents(!!user);
@@ -123,10 +127,20 @@ export function WorldView() {
   }, [mutate]);
 
   const colonies = data?.colonies ?? [];
-  const colony = useMemo(() => colonies.find((c) => c.id === sel) ?? colonies.find((c) => c.members.some((m) => m.ownerWallet === user?.wallet)) ?? colonies[0], [colonies, sel, user]);
+  const colony = useMemo(() => colonies.find((c) => c.id === sel) ?? colonies.find((c) => c.members.some((m) => !!user && m.ownerId === user.id)) ?? colonies[0], [colonies, sel, user]);
   const events = (data?.events ?? []).filter((e) => !colony || e.colonyId === colony.id);
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => setPicked(null), [colony?.id]);
+  // first-person view through one of your own agents
+  const [pov, setPov] = useState<string | null>(null);
+  const [povDoing, setPovDoing] = useState("");
+  useEffect(() => setPov(null), [colony?.id]);
+  useEffect(() => {
+    if (!pov) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setPov(null);
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [pov]);
   const wars = (data?.events ?? []).filter((e) => e.kind === "war" && (!colony || e.colonyId === colony.id));
 
   const act = async (fn: () => Promise<unknown>, ok: string) => {
@@ -149,9 +163,15 @@ export function WorldView() {
   if (!data) return <div className="grid h-[60vh] place-items-center text-muted">Loading the Realm…</div>;
   if (!colony) return <div className="grid h-[40vh] place-items-center text-muted">No colonies yet.</div>;
 
-  const founder = !!user && colony.founderWallet === user.wallet;
+  const founder = !!user && colony.founderId === user.id;
   const homeless = mine.agents.filter((a) => !colonies.some((c) => c.members.some((m) => m.id === a.id)));
-  const myHere = colony.members.filter((m) => m.ownerWallet === user?.wallet);
+  const myHere = colony.members.filter((m) => !!user && m.ownerId === user.id);
+  // Only the residents drawn in town (the first ten) can be ridden along with. While developing,
+  // /realm?pov=1 lets you try the view without owning an agent.
+  const inTown = colony.members.slice(0, 10);
+  const devPov = process.env.NODE_ENV !== "production" && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("pov");
+  const povChoices = inTown.filter((m) => (!!user && m.ownerId === user.id) || devPov);
+  const povMember = pov ? inTown.find((m) => m.id === pov) ?? null : null;
   const full = colony.members.length >= colony.capacity;
   const r = colony.sim.resources;
 
@@ -193,8 +213,47 @@ export function WorldView() {
 
       {/* the town */}
       <div className="relative h-[72vh] max-h-[820px] min-h-[520px] overflow-hidden rounded-[24px] border border-line bg-[#3a2a66]">
-        <TownScene key={colony.id} colony={colony} picked={picked} onPick={setPicked} />
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-4 bg-gradient-to-b from-black/55 to-transparent p-5">
+        <TownScene key={colony.id} colony={colony} picked={picked} onPick={setPicked} pov={povMember?.id ?? null} onPovDoing={setPovDoing} />
+        {povMember ? (
+          <>
+            {/* first-person HUD */}
+            <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_140px_rgba(0,0,0,0.55)]" />
+            <div className="pointer-events-none absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/70" />
+            <div className="absolute left-4 top-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/55 px-4 py-2.5 backdrop-blur">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              <div>
+                <div className="text-sm font-semibold text-white">{povMember.name}&apos;s eyes</div>
+                <div className="text-xs text-white/65">{povDoing || "Out and about"}</div>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 flex items-center gap-2">
+              {povChoices.length > 1 && (
+                <button
+                  onClick={() => setPov(povChoices[(povChoices.findIndex((m) => m.id === povMember.id) + 1) % povChoices.length].id)}
+                  className="rounded-[10px] border border-white/15 bg-black/55 px-3 py-2 text-sm text-white backdrop-blur hover:bg-black/70"
+                >
+                  Next agent
+                </button>
+              )}
+              <button onClick={() => setPov(null)} className="rounded-[10px] bg-white px-3 py-2 text-sm font-medium text-[#111] hover:bg-white/90">
+                Exit view
+              </button>
+            </div>
+            <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-black/50 px-3 py-1.5 text-xs text-white/75 backdrop-blur">
+              Drag to look around · Esc to exit
+            </div>
+          </>
+        ) : (
+          povChoices.length > 0 && (
+            <button
+              onClick={() => setPov((povChoices.find((m) => m.id === picked) ?? povChoices[0]).id)}
+              className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-[10px] bg-white px-4 py-2 text-sm font-medium text-[#111] shadow-lg hover:bg-white/90"
+            >
+              See through {(povChoices.find((m) => m.id === picked) ?? povChoices[0]).name}&apos;s eyes
+            </button>
+          )
+        )}
+        <div className={clsx(povMember && "hidden", "pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-4 bg-gradient-to-b from-black/55 to-transparent p-5")}>
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-white/60">
               {colony.rank.title} · Day {colony.sim.day}
@@ -225,7 +284,7 @@ export function WorldView() {
             </div>
           </div>
         </div>
-        <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
+        <div className={clsx(povMember && "hidden", "pointer-events-none absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4")}>
           <div className="max-w-md space-y-1">
             {events.slice(0, 3).map((e, i) => (
               <div key={e.id} className="w-fit rounded-lg bg-black/50 px-2.5 py-1 text-xs text-white/90 backdrop-blur" style={{ opacity: 1 - i * 0.25 }}>
@@ -241,6 +300,17 @@ export function WorldView() {
         </div>
       </div>
 
+      {/* the day: clock, timeline, time-lapse and what everyone is doing right now */}
+      <div className="mt-6">
+        <DayCard
+          colony={colony}
+          onPick={(id) => {
+            setPicked(id);
+            document.getElementById("realm-living")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+        />
+      </div>
+
       {/* the living Realm: whoever you clicked, the elder, the market and the map */}
       <div id="realm-living" className="mt-6 grid items-start gap-6 lg:grid-cols-3">
         {picked ? (
@@ -248,7 +318,7 @@ export function WorldView() {
             colony={colony}
             id={picked}
             onClose={() => setPicked(null)}
-            own={!!user && colony.members.find((m) => m.id === picked)?.ownerWallet === user.wallet}
+            own={!!user && colony.members.find((m) => m.id === picked)?.ownerId === user.id}
             preview={preview}
             busy={busy}
             onToggleBrain={(on) => act(() => api(`/colonies/${colony.id}/brain`, { body: { agentId: picked, on } }), on ? "It will plan its own days from now on" : "Back to house rules")}
@@ -265,7 +335,8 @@ export function WorldView() {
         <RealmMap colonies={colonies} current={colony.id} onPick={setSel} wars={wars} />
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
         <CreationsCard
           colony={colony}
           onPick={(id) => {
@@ -273,6 +344,8 @@ export function WorldView() {
             document.getElementById("realm-living")?.scrollIntoView({ behavior: "smooth", block: "center" });
           }}
         />
+        </div>
+        <LedgerCard colony={colony} />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
@@ -329,11 +402,11 @@ export function WorldView() {
             <Users size={16} /> Residents
           </div>
           <p className="mb-4 text-xs text-dim">
-            {colony.isHouse ? "Founded by the house agents. Anyone can move in." : `Founded by ${shortAddr(colony.founderWallet)}.`} Arena wins pay koku into the colony chest.
+            {colony.isHouse ? "Founded by the house agents. Anyone can move in." : `Founded by ${shortAddr(colony.founderWallet) || "a player"}.`} Arena wins pay koku into the colony chest.
           </p>
           <div className="space-y-2">
             {colony.members.map((m) => {
-              const own = !!user && m.ownerWallet === user.wallet;
+              const own = !!user && m.ownerId === user.id;
               return (
                 <div key={m.id} onClick={() => setPicked(m.id)} className={clsx("flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition hover:border-line-strong", picked === m.id ? "border-accent/50" : "border-line")}>
                   <FighterGlyph slug={m.fighter} size={32} />

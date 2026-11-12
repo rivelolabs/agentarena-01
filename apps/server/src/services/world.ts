@@ -5,6 +5,7 @@
  */
 import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
+  book,
   BUILDING_INFO,
   BUILDING_KINDS,
   JOBS,
@@ -49,7 +50,7 @@ export const MAX_COLONIES = 20;
 async function membersOf(ids: string[]) {
   if (!ids.length) return [];
   return db
-    .select({ id: agents.id, name: agents.name, fighter: agents.fighter, job: agents.job, elo: agents.elo, colonyId: agents.colonyId, isHouse: agents.isHouse, wallet: users.wallet })
+    .select({ id: agents.id, name: agents.name, fighter: agents.fighter, job: agents.job, elo: agents.elo, colonyId: agents.colonyId, isHouse: agents.isHouse, ownerId: agents.ownerId, wallet: users.wallet })
     .from(agents)
     .innerJoin(users, eq(users.id, agents.ownerId))
     .where(and(inArray(agents.colonyId, ids), eq(agents.archived, false)))
@@ -70,11 +71,12 @@ export async function colonyDTOs(rows: Colony[]): Promise<ColonyDTO[]> {
       motto: c.motto,
       color: c.color,
       slot: c.slot,
+      founderId: c.isHouse ? null : c.founderId,
       founderWallet: c.isHouse ? null : founders.find((f) => f.id === c.founderId)?.wallet ?? null,
       isHouse: c.isHouse,
       governorAgentId: c.governorAgentId,
       sim,
-      members: ms.map((m) => ({ id: m.id, name: m.name, fighter: m.fighter, job: m.job as Job, elo: m.elo, ownerWallet: m.isHouse ? null : m.wallet, isHouse: m.isHouse })),
+      members: ms.map((m) => ({ id: m.id, name: m.name, fighter: m.fighter, job: m.job as Job, elo: m.elo, ownerId: m.isHouse ? null : m.ownerId, ownerWallet: m.isHouse ? null : m.wallet, isHouse: m.isHouse })),
       capacity: capacity(sim),
       defense: defenseOf(sim, asMembers),
       prosperity: p,
@@ -167,7 +169,7 @@ async function modelPlan(agentId: string, c: Citizen, sim: ColonySim, people: Ci
       apiKey: decryptSecret(a.encryptedKey),
       system: prompt.system,
       user: prompt.user,
-      maxTokens: 260,
+      maxTokens: 420,
       timeoutMs: 15_000,
     });
     const text = res.text.slice(res.text.indexOf("{"), res.text.lastIndexOf("}") + 1);
@@ -190,7 +192,7 @@ export async function tickWorld() {
       name: c.name,
       row: c,
       sim: c.sim as ColonySim,
-      people: all.filter((m) => m.colonyId === c.id).map((m) => ({ id: m.id, name: m.name, job: m.job as Job, fighter: m.fighter, elo: m.elo })),
+      people: all.filter((m) => m.colonyId === c.id).map((m) => ({ id: m.id, name: m.name, job: m.job as Job, fighter: m.fighter, elo: m.elo, real: !m.isHouse, owner: m.isHouse ? null : m.ownerId })),
     }));
 
     // residents whose owners opted in plan their own day every few world days (bounded per tick)
@@ -198,10 +200,12 @@ export async function tickWorld() {
     const asked: Promise<void>[] = [];
     for (const t of turns) {
       const brains = t.sim.realm?.brains ?? {};
+      let here = 0; // no single colony may use up the whole Realm's model budget for the day
       for (const p of t.people) {
-        if (!brains[p.id] || asked.length >= env.REALM_BRAIN_MAX_PER_TICK) continue;
+        if (!brains[p.id] || asked.length >= env.REALM_BRAIN_MAX_PER_TICK || here >= Math.ceil(env.REALM_BRAIN_MAX_PER_TICK / 2)) continue;
         const slot = [...p.id].reduce((n, ch) => n + ch.charCodeAt(0), 0) % env.REALM_BRAIN_EVERY_DAYS;
         if (t.sim.day % env.REALM_BRAIN_EVERY_DAYS !== slot) continue;
+        here += 1;
         asked.push(
           modelPlan(p.id, p, t.sim, t.people, t.name).then((plan) => {
             if (plan) (plans[t.id] ??= {})[p.id] = plan;
@@ -249,9 +253,20 @@ export async function setBrain(colonyId: string, agentId: string, on: boolean) {
   return u;
 }
 
+/**
+ * Runs the Realm clock. Days turn over on fixed boundaries of WORLD_TICK_MS (counted from the
+ * Unix epoch) so every browser can show the same hour of the Realm day: by default a Realm day
+ * lasts 6 real hours, so four of them pass in one of ours.
+ */
 export function startWorldClock() {
-  if (env.WORLD_TICK_MS <= 0) return;
-  setInterval(() => tickWorld().catch((e) => console.error("[world] tick failed", e)), env.WORLD_TICK_MS).unref();
+  const len = env.WORLD_TICK_MS;
+  if (len <= 0) return;
+  const run = () => tickWorld().catch((e) => console.error("[world] tick failed", e));
+  const wait = len - (Date.now() % len);
+  setTimeout(() => {
+    run();
+    setInterval(run, len).unref();
+  }, wait).unref();
 }
 
 /** Arena results pay koku into the fighters' colony chests. */
@@ -270,6 +285,7 @@ export async function rewardColonies(matchId: string) {
     const res = resultFor(final, side);
     const koku = fightReward(res, m.mode === "practice", sim.buildings.dojo);
     sim.resources.koku += koku;
+    book(sim, "in", "arena", koku);
     await db.update(colonies).set({ sim }).where(eq(colonies.id, c.id));
     const [opp] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, foe));
     await addEvents(c.id, sim.day, [

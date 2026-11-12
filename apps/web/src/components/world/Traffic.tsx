@@ -11,7 +11,8 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
-import { realmClock } from "./clock";
+import { realmClock, realmNow } from "./clock";
+import { trafficOpen } from "./schedule";
 
 const V = (n: string) => `/models/vehicles/${n}.glb`;
 const CONCEPT = "/models/nature/car.glb";
@@ -88,6 +89,8 @@ function Driver({ model, color, lane, speed, offset }: { model: VehicleModel; co
     const span = ROAD.to - ROAD.from + 10;
     const t = (clock.elapsedTime * speed + offset) % span;
     g.current.position.z = lane === 1 ? ROAD.from - 5 + t : ROAD.to + 5 - t;
+    // only drives through while the street is open (it closes for lunch, the spars and the fire)
+    g.current.visible = trafficOpen(realmClock(realmNow() - (t / speed) * 1000).hour);
     // lights come on after dark
     const n = realmClock().night;
     for (const l of lights) l.emissiveIntensity = 0.6 + n * 2.4;
@@ -114,18 +117,11 @@ function Parked({ model, color, p, r }: { model: VehicleModel; color: string | n
  */
 const TOWARD: { model: VehicleModel; color: string | null }[] = [
   { model: "concept", color: "#8a1c1c" },
-  { model: "car-taxi", color: null },
   { model: "bus-city", color: "#2b6cb0" },
-  { model: "car-sedan", color: "#2e3b4e" },
-  { model: "van-delivery", color: "#e8e6e1" },
 ];
 const AWAY: { model: VehicleModel; color: string | null }[] = [
-  { model: "car-suv", color: "#6b6f74" },
-  { model: "truck-box", color: "#b5432f" },
-  { model: "car-police", color: null },
-  { model: "car-hatchback", color: "#d9d6cf" },
-  { model: "car-pickup", color: "#3f5a3a" },
-  { model: "concept", color: "#1f3a5f" },
+  { model: "car-taxi", color: null },
+  { model: "van-delivery", color: "#e8e6e1" },
 ];
 
 export function Traffic() {
@@ -133,18 +129,15 @@ export function Traffic() {
   return (
     <>
       {TOWARD.map((v, i) => (
-        <Driver key={`t${i}`} {...v} lane={1} speed={6.2} offset={(span / TOWARD.length) * i} />
+        <Driver key={`t${i}`} {...v} lane={1} speed={5.6} offset={(span / TOWARD.length) * i} />
       ))}
       {AWAY.map((v, i) => (
-        <Driver key={`a${i}`} {...v} lane={-1} speed={5.2} offset={(span / AWAY.length) * i + 4} />
+        <Driver key={`a${i}`} {...v} lane={-1} speed={4.8} offset={(span / AWAY.length) * i + 20} />
       ))}
       {/* bikes and scooters parked on the pavement, parallel to the kerb */}
-      <Parked model="bike-city" color="#2f5d8a" p={[-4.2, 0.2, 6.2]} r={0} />
-      <Parked model="bike-city" color="#9a2f2f" p={[-4.6, 0.2, 6.5]} r={0.1} />
-      <Parked model="scooter-moped" color="#e0b84a" p={[4.3, 0.2, -1.4]} r={Math.PI} />
-      <Parked model="motorcycle-cruiser" color="#1c1c1e" p={[-4.3, 0.2, -16.5]} r={0} />
-      <Parked model="scooter-moped" color="#5aa0a8" p={[4.4, 0.2, -24]} r={Math.PI} />
-      <Parked model="bike-city" color="#6a6a6a" p={[4.3, 0.2, -31]} r={Math.PI} />
+      <Parked model="bike-city" color="#2f5d8a" p={[-5.15, 0.2, 6.2]} r={0} />
+      <Parked model="scooter-moped" color="#e0b84a" p={[5.15, 0.2, -1.4]} r={Math.PI} />
+      <Parked model="motorcycle-cruiser" color="#1c1c1e" p={[-5.15, 0.2, -16.5]} r={0} />
       {/* a few cars parked on gravel pads by the town gate */}
       {[-1, 1].map((q) => (
         <mesh key={q} rotation={[-Math.PI / 2, 0, 0]} position={[q * 7.8, 0.015, 21]} receiveShadow>

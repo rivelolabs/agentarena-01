@@ -5,6 +5,7 @@
  * pillars, ash, blood smears and dust. Everything is driven by the battle store's virtual clock.
  */
 import { useEffect, useMemo, useRef } from "react";
+import { ArcStrike, PowerField } from "./PowerEffects";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "zustand";
@@ -168,6 +169,12 @@ function trailPoints(a: Anchors, part: TrailPart, base: THREE.Vector3, tip: THRE
   } else if (part === "footR") {
     base.copy(a.legR);
     tip.subVectors(a.footR, a.legR).multiplyScalar(1.15).add(a.legR);
+  } else if (part === "footL") {
+    base.copy(a.legL);
+    tip.subVectors(a.footL, a.legL).multiplyScalar(1.15).add(a.legL);
+  } else if (part === "handL") {
+    base.copy(a.foreL);
+    tip.copy(a.handL);
   } else {
     base.copy(a.foreR);
     tip.copy(a.handR);
@@ -331,20 +338,20 @@ function BarrierHit({ fx }: { fx: Effect }) {
       m.visible = t >= delay && kk < 1;
       m.position.set(x, y, z);
       m.scale.setScalar((0.25 + kk * grow) * big);
-      (m.material as THREE.MeshBasicMaterial).opacity = (1 - kk) * 0.9;
+      (m.material as THREE.MeshBasicMaterial).opacity = (1 - kk) * 0.45;
     }
     if (flash.current) {
       const f = Math.max(0, 1 - t / 0.18);
       flash.current.visible = f > 0;
       flash.current.position.set(x, y, z);
-      flash.current.scale.setScalar((0.9 + (1 - f) * 1.4) * big);
-      flash.current.material.opacity = f;
+      flash.current.scale.setScalar((0.4 + (1 - f) * 0.6) * big);
+      flash.current.material.opacity = f * 0.55;
     }
     const s = streaks.current;
     if (s) {
       s.visible = k < 1;
       dirs.forEach((d, i) => {
-        const r = 1.6 * (1 - Math.pow(1 - k, 3));
+        const r = 0.7 * (1 - Math.pow(1 - k, 3));
         dummy.position.set(x + d.x * r, y + d.y * r - k * k * 0.8, z + d.z * r);
         dummy.lookAt(x + d.x * (r + 1), y + d.y * (r + 1) - k * k * 0.8, z + d.z * (r + 1));
         const sc = Math.max(0, 1 - k);
@@ -402,8 +409,8 @@ function Shatter({ fx }: { fx: Effect }) {
       const f = Math.max(0, 1 - t / 0.3);
       flash.current.visible = f > 0;
       flash.current.position.set(x, y, z);
-      flash.current.scale.setScalar(2.5 + (1 - f) * 2);
-      flash.current.material.opacity = f * 0.8;
+      flash.current.scale.setScalar(1.1 + (1 - f) * 1);
+      flash.current.material.opacity = f * 0.45;
     }
   });
   return (
@@ -431,7 +438,7 @@ function Shockwave({ fx }: { fx: Effect }) {
       ring.current.visible = k < 1;
       ring.current.position.set(x, 0.03, z);
       ring.current.scale.setScalar(0.4 + (1 - Math.pow(1 - k, 2)) * 9 * fx.scale);
-      (ring.current.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.9;
+      (ring.current.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.4;
     }
     if (dust.current) {
       dust.current.visible = k < 1;
@@ -574,7 +581,7 @@ function Pillar({ fx }: { fx: Effect }) {
     }
     if (light.current) {
       light.current.position.set(x, 1.6, z + 0.6);
-      light.current.intensity = on * (30 + Math.sin(t * 50) * 8);
+      light.current.intensity = on * 24;
     }
   });
   return (
@@ -683,6 +690,9 @@ function Dust({ fx }: { fx: Effect }) {
 
 function EffectView({ fx }: { fx: Effect }) {
   switch (fx.kind) {
+    case "arcStrike": return <ArcStrike fx={fx} />;
+    case "vortex":
+    case "nova": return <PowerField fx={fx} />;
     case "guardHit":
     case "shieldHit":
       return <BarrierHit fx={fx} />;

@@ -7,12 +7,44 @@ import { fileURLToPath } from "node:url";
 import { env } from "../env";
 import * as schema from "./schema";
 
-export const sqlClient = postgres(env.DATABASE_URL, {
+/**
+ * Connection options that differ between hosts:
+ *  - TLS: on when the URL says sslmode=require, and always for Supabase.
+ *  - Prepared statements: off behind a transaction pooler (Supabase port 6543, PgBouncer),
+ *    which hands every query to a different backend connection.
+ */
+export function connectionOptions(url: string) {
+  let host = "";
+  let port = "";
+  let pgbouncer = false;
+  let sslmode: string | null = null;
+  let clean = url;
+  try {
+    const u = new URL(url);
+    host = u.hostname;
+    port = u.port;
+    pgbouncer = u.searchParams.get("pgbouncer") === "true";
+    sslmode = u.searchParams.get("sslmode");
+    // "pgbouncer" is a hint for clients, not a Postgres setting; the server would reject it
+    u.searchParams.delete("pgbouncer");
+    clean = u.toString();
+  } catch {
+    /* not a URL we can parse: pass it through untouched */
+  }
+  const supabase = /\.supabase\.(co|com)$/.test(host);
+  const ssl = sslmode === "disable" ? undefined : sslmode === "require" || supabase ? ("require" as const) : undefined;
+  const pooled = pgbouncer || port === "6543";
+  return { url: clean, ssl, prepare: !pooled };
+}
+
+const conn = connectionOptions(env.DATABASE_URL);
+
+export const sqlClient = postgres(conn.url, {
   max: 10,
   idle_timeout: 30,
   onnotice: () => {},
-  // Railway Postgres requires TLS on the public proxy; internal networking does not.
-  ssl: /sslmode=require/.test(env.DATABASE_URL) ? "require" : undefined,
+  ssl: conn.ssl,
+  prepare: conn.prepare,
 });
 
 export const db = drizzle(sqlClient, { schema });
